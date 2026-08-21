@@ -1,2 +1,14 @@
 <Solution>
+  <Project Path="src/Serval.Agent/Serval.Agent.csproj" />
+  <Project Path="src/Serval.Application/Serval.Application.csproj" />
+  <Project Path="src/Serval.Domain/Serval.Domain.csproj" />
+  <Project Path="src/Serval.Infrastructure/Serval.Infrastructure.csproj" />
+  <Project Path="src/Serval.Systemd/Serval.Systemd.csproj" />
+  <Project Path="src/Serval.Web/Serval.Web.csproj" />
+  <Folder Name="/tests/">
+    <Project Path="tests/Serval.Application.Tests/Serval.Application.Tests.csproj" />
+    <Project Path="tests/Serval.Domain.Tests/Serval.Domain.Tests.csproj" />
+    <Project Path="tests/Serval.Infrastructure.Tests/Serval.Infrastructure.Tests.csproj" />
+    <Project Path="tests/Serval.Systemd.Tests/Serval.Systemd.Tests.csproj" />
+  </Folder>
 </Solution>

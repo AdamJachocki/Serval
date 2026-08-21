@@ -1,0 +1,57 @@
+name: Bug report
+description: Report reproducible incorrect behavior that is not a security vulnerability.
+title: '[Bug]: '
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for helping improve Serval. Do not disclose vulnerabilities or secrets here; follow SECURITY.md instead.
+  - type: input
+    id: revision
+    attributes:
+      label: Version or revision
+      description: Release version or commit SHA where the issue occurs.
+    validations:
+      required: true
+  - type: dropdown
+    id: distribution
+    attributes:
+      label: Environment
+      options:
+        - Ubuntu LTS
+        - Debian stable
+        - Other development environment
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      description: Provide the smallest deterministic reproduction using synthetic, non-secret data.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Redacted diagnostic evidence
+      description: Add relevant logs or screenshots after removing credentials, environment values, personal data, hostnames, and production details.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I searched for an existing issue.
+          required: true
+        - label: This report does not disclose a suspected security vulnerability.
+          required: true
+        - label: This report contains no credentials, environment-variable values, personal data, or production secrets.
+          required: true

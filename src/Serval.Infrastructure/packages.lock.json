@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "dependencies": {
+    "net10.0": {
+      "serval.application": {
+        "type": "Project",
+        "dependencies": {
+          "Serval.Domain": "[1.0.0, )"
+        }
+      },
+      "serval.domain": {
+        "type": "Project"
+      }
+    }
+  }
+}

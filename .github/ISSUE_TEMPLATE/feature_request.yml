@@ -1,0 +1,47 @@
+name: Feature request
+description: Propose a focused capability or improvement.
+title: '[Feature]: '
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Explain the user problem before proposing an implementation. Requests must preserve the security invariants in AGENTS.md.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Who is affected, and what outcome cannot currently be achieved safely?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed outcome
+      description: Describe the smallest useful outcome without assuming a specific implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: security
+    attributes:
+      label: Security and privilege impact
+      description: Identify new inputs, data exposure, authorization decisions, filesystem access, service lifecycle effects, or privileged capabilities. Write "None" only after considering each category.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe safer or narrower alternatives and why they do not solve the problem.
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope checks
+      options:
+        - label: This proposal preserves the Web/Agent privilege boundary.
+          required: true
+        - label: This proposal does not combine configuration saving with service restart.
+          required: true
+        - label: This issue contains no secrets or sensitive environment values.
+          required: true

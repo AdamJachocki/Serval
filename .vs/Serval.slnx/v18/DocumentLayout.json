@@ -1,7 +1,28 @@
 {
   "Version": 1,
   "WorkspaceRootPath": "D:\\Projekty\\Serval\\",
-  "Documents": [],
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{4DEA2CE7-8E56-FA54-DD5F-18D7B35F691B}|src\\Serval.Web\\Serval.Web.csproj|d:\\projekty\\serval\\src\\serval.web\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{4DEA2CE7-8E56-FA54-DD5F-18D7B35F691B}|src\\Serval.Web\\Serval.Web.csproj|solutionrelative:src\\serval.web\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{672A9D52-2069-2D13-1CE1-013B7D64F8EE}|src\\Serval.Systemd\\Serval.Systemd.csproj|d:\\projekty\\serval\\src\\serval.systemd\\serval.systemd.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|",
+      "RelativeMoniker": "D:0:0:{672A9D52-2069-2D13-1CE1-013B7D64F8EE}|src\\Serval.Systemd\\Serval.Systemd.csproj|solutionrelative:src\\serval.systemd\\serval.systemd.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4DEA2CE7-8E56-FA54-DD5F-18D7B35F691B}|src\\Serval.Web\\Serval.Web.csproj|d:\\projekty\\serval\\src\\serval.web\\serval.web.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|",
+      "RelativeMoniker": "D:0:0:{4DEA2CE7-8E56-FA54-DD5F-18D7B35F691B}|src\\Serval.Web\\Serval.Web.csproj|solutionrelative:src\\serval.web\\serval.web.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A73E28E5-0EE2-2228-E88F-B391C0F3A50A}|src\\Serval.Agent\\Serval.Agent.csproj|d:\\projekty\\serval\\src\\serval.agent\\serval.agent.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|",
+      "RelativeMoniker": "D:0:0:{A73E28E5-0EE2-2228-E88F-B391C0F3A50A}|src\\Serval.Agent\\Serval.Agent.csproj|solutionrelative:src\\serval.agent\\serval.agent.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{0BB86D6D-F919-7CCA-F16E-C24B0078EA99}|src\\Serval.Application\\Serval.Application.csproj|d:\\projekty\\serval\\src\\serval.application\\serval.application.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|",
+      "RelativeMoniker": "D:0:0:{0BB86D6D-F919-7CCA-F16E-C24B0078EA99}|src\\Serval.Application\\Serval.Application.csproj|solutionrelative:src\\serval.application\\serval.application.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|"
+    }
+  ],
   "DocumentGroupContainers": [
     {
       "Orientation": 0,
@@ -9,7 +30,7 @@
       "DocumentGroups": [
         {
           "DockedWidth": 79,
-          "SelectedChildIndex": -1,
+          "SelectedChildIndex": 15,
           "Children": [
             {
               "$type": "Bookmark",
@@ -56,8 +77,69 @@
               "Name": "ST:1:0:{7f40df72-066b-4810-a08b-c0fbed76c948}"
             },
             {
-              "$type": "Bookmark",
-              "Name": "ST:0:0:{cce594b6-0c39-4442-ba28-10c64ac7e89f}"
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "Serval.Systemd",
+              "DocumentMoniker": "D:\\Projekty\\Serval\\src\\Serval.Systemd\\Serval.Systemd.csproj",
+              "RelativeDocumentMoniker": "src\\Serval.Systemd\\Serval.Systemd.csproj",
+              "ToolTip": "D:\\Projekty\\Serval\\src\\Serval.Systemd\\Serval.Systemd.csproj",
+              "RelativeToolTip": "src\\Serval.Systemd\\Serval.Systemd.csproj",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAUAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
+              "WhenOpened": "2026-08-20T14:00:04.535Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "Serval.Web",
+              "DocumentMoniker": "D:\\Projekty\\Serval\\src\\Serval.Web\\Serval.Web.csproj",
+              "RelativeDocumentMoniker": "src\\Serval.Web\\Serval.Web.csproj",
+              "ToolTip": "D:\\Projekty\\Serval\\src\\Serval.Web\\Serval.Web.csproj",
+              "RelativeToolTip": "src\\Serval.Web\\Serval.Web.csproj",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
+              "WhenOpened": "2026-08-20T13:59:54.985Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "Serval.Agent",
+              "DocumentMoniker": "D:\\Projekty\\Serval\\src\\Serval.Agent\\Serval.Agent.csproj",
+              "RelativeDocumentMoniker": "src\\Serval.Agent\\Serval.Agent.csproj",
+              "ToolTip": "D:\\Projekty\\Serval\\src\\Serval.Agent\\Serval.Agent.csproj",
+              "RelativeToolTip": "src\\Serval.Agent\\Serval.Agent.csproj",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
+              "WhenOpened": "2026-08-20T13:59:46.272Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "Serval.Application",
+              "DocumentMoniker": "D:\\Projekty\\Serval\\src\\Serval.Application\\Serval.Application.csproj",
+              "RelativeDocumentMoniker": "src\\Serval.Application\\Serval.Application.csproj",
+              "ToolTip": "D:\\Projekty\\Serval\\src\\Serval.Application\\Serval.Application.csproj",
+              "RelativeToolTip": "src\\Serval.Application\\Serval.Application.csproj",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
+              "WhenOpened": "2026-08-20T13:59:31.018Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "Program.cs",
+              "DocumentMoniker": "D:\\Projekty\\Serval\\src\\Serval.Web\\Program.cs",
+              "RelativeDocumentMoniker": "src\\Serval.Web\\Program.cs",
+              "ToolTip": "D:\\Projekty\\Serval\\src\\Serval.Web\\Program.cs",
+              "RelativeToolTip": "src\\Serval.Web\\Program.cs",
+              "ViewState": "AgIAAAwAAAAAAAAAAAAAABgAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-08-20T13:59:09.874Z",
+              "EditorCaption": ""
             }
           ]
         }
