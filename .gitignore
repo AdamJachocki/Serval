@@ -60,3 +60,6 @@ nunit-*.xml
 *.binlog
 ~$*
 *~
+
+# Visual Studio
+.vs
