@@ -172,9 +172,10 @@ Critical systemd behavior must be tested against a real Linux/systemd environmen
 
 ## Mandatory project skills
 
+- Load `.agents/skills/serval-github-issue/SKILL.md` whenever the user asks to implement, execute, or complete a GitHub issue by number. Phrases such as `Wykonaj zadanie 6`, `Wykonaj issue #6`, or `Implement issue 6` refer to that issue in the repository identified by the `origin` remote unless the user explicitly names another repository.
 - Load `.agents/skills/serval-systemd/SKILL.md` for every task involving systemd, units, service discovery or lifecycle, environment sources, drop-ins, effective service configuration, or Serval's systemd integration.
 - Load `.agents/skills/serval-privileged-operation/SKILL.md` for every task involving `Serval.Agent`, Web-to-Agent IPC or Unix Domain Sockets, PAM, protected services, privileged authorization/escalation, privileged systemd or filesystem mutations, or new root capabilities.
-- Load both when a task crosses both scopes. Their constraints are mandatory and supplement the security invariants below.
+- Load every applicable skill when a task crosses scopes. Their constraints are mandatory and supplement the security invariants below.
 
 ## Security invariants
 
