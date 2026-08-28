@@ -25,7 +25,13 @@ Use this skill when the user asks to implement, execute, or complete a GitHub is
    - Keep the complete branch name at most 70 characters and do not end it with a hyphen.
    - Example: `M1: Define the system service read model` becomes `features/6-system-service-read-model`.
 4. If the exact branch is already checked out and clearly belongs to the same issue, continue on it. If a same-named local or remote branch exists but is not the current task branch, do not overwrite or recreate it; report the collision and ask for direction.
-5. Create and switch to the branch from the freshly fetched remote default branch, for example `git switch -c <branch> origin/<default-branch>`. Never force-move an existing branch.
+5. Update the local default branch, then create and switch to the implementation branch from it:
+   ```text
+   git switch <default-branch>
+   git pull
+   git switch -c <branch>
+   ```
+   Never force-move an existing branch.
 
 ## Implement the issue
 
