@@ -163,11 +163,19 @@ Privileged and security-sensitive behavior requires tests for both permitted and
 
 Critical systemd behavior must be tested against a real Linux/systemd environment in CI. Do not rely only on mocks.
 
+## Mandatory post-change review
+
+- After every change covered by `.agents/workflows/post-change-review.md`, run that workflow before considering the task complete.
+- Every review iteration must use a newly created `serval-code-reviewer` agent with a fresh context and no inherited implementation conversation.
+- A task subject to review is complete only when the latest independent reviewer returns `VERDICT: APPROVED` and every applicable mandatory quality gate has passed.
+- Review findings and every relevant quality-gate result must be reported according to the workflow.
+
 ## Mandatory project skills
 
+- Load `.agents/skills/serval-github-issue/SKILL.md` whenever the user asks to implement, execute, or complete a GitHub issue by number. Phrases such as `Wykonaj zadanie 6`, `Wykonaj issue #6`, or `Implement issue 6` refer to that issue in the repository identified by the `origin` remote unless the user explicitly names another repository.
 - Load `.agents/skills/serval-systemd/SKILL.md` for every task involving systemd, units, service discovery or lifecycle, environment sources, drop-ins, effective service configuration, or Serval's systemd integration.
 - Load `.agents/skills/serval-privileged-operation/SKILL.md` for every task involving `Serval.Agent`, Web-to-Agent IPC or Unix Domain Sockets, PAM, protected services, privileged authorization/escalation, privileged systemd or filesystem mutations, or new root capabilities.
-- Load both when a task crosses both scopes. Their constraints are mandatory and supplement the security invariants below.
+- Load every applicable skill when a task crosses scopes. Their constraints are mandatory and supplement the security invariants below.
 
 ## Security invariants
 

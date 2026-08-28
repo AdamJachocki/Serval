@@ -62,4 +62,4 @@ nunit-*.xml
 *~
 
 # Visual Studio
-.vs
+.vs/
