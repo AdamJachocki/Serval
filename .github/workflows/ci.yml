@@ -40,4 +40,4 @@ jobs:
         run: dotnet build Serval.slnx --configuration Release --no-restore
 
       - name: Test
-        run: dotnet test Serval.slnx --configuration Release --no-build --no-restore --logger "trx;LogFilePrefix=test-results"
+        run: dotnet test --solution Serval.slnx --configuration Release --no-build --no-restore --report-trx --report-trx-filename "test-results_{asm}_{tfm}_{arch}.trx"

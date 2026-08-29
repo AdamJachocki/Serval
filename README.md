@@ -51,7 +51,7 @@ Linux is the target platform. The bootstrap can also be built and tested on othe
 dotnet restore --locked-mode
 dotnet format Serval.slnx --verify-no-changes --no-restore
 dotnet build Serval.slnx --configuration Release --no-restore
-dotnet test Serval.slnx --configuration Release --no-build --no-restore
+dotnet test --solution Serval.slnx --configuration Release --no-build --no-restore
 ```
 
 Package lock files are committed so clean checkouts and CI resolve the reviewed dependency graph.

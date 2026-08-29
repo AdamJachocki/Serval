@@ -15,7 +15,7 @@ Write `None` only after evaluating each item. Never include credentials or envir
 
 - [ ] `dotnet format Serval.slnx --verify-no-changes --no-restore`
 - [ ] `dotnet build Serval.slnx --configuration Release --no-restore`
-- [ ] `dotnet test Serval.slnx --configuration Release --no-build --no-restore`
+- [ ] `dotnet test --solution Serval.slnx --configuration Release --no-build --no-restore`
 - [ ] Relevant permitted and denied paths are tested.
 - [ ] Real Linux/systemd testing is included when required by `AGENTS.md` and the project skills.
 - [ ] Documentation is updated for changed behavior or assumptions.
