@@ -5,12 +5,18 @@ namespace Serval.Domain.Tests.Services;
 
 public sealed class SystemServiceIdTests
 {
-    [Fact]
-    public void ConstructorPreservesCanonicalUnitName()
+    [Theory]
+    [InlineData("postgresql.service")]
+    [InlineData("backup@.service")]
+    [InlineData("postgresql@main.service")]
+    [InlineData("dbus-org.freedesktop.resolve1.service")]
+    [InlineData("serial-getty@ttyS0.service")]
+    [InlineData(@"escaped\x2dname.service")]
+    public void ConstructorAcceptsValidServiceUnitName(string value)
     {
-        var id = new SystemServiceId("postgresql@main.service");
+        var id = new SystemServiceId(value);
 
-        Assert.Equal("postgresql@main.service", id.Value);
+        Assert.Equal(value, id.Value);
         Assert.Equal(id.Value, id.ToString());
     }
 
@@ -18,9 +24,47 @@ public sealed class SystemServiceIdTests
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
-    public void ConstructorRejectsMissingUnitName(string? value)
+    [InlineData(".service")]
+    [InlineData("@instance.service")]
+    [InlineData("postgresql")]
+    [InlineData("postgresql.socket")]
+    [InlineData("postgresql.Service")]
+    [InlineData("postgresql.service ")]
+    [InlineData("postgres ql.service")]
+    [InlineData("postgresql*.service")]
+    [InlineData("żurnal.service")]
+    [InlineData("../postgresql.service")]
+    [InlineData("/etc/systemd/system/postgresql.service")]
+    [InlineData("postgresql/../redis.service")]
+    [InlineData("postgresql\0.service")]
+    [InlineData("postgresql\n.service")]
+    public void ConstructorRejectsInvalidOrMaliciousUnitName(string? value)
     {
         Assert.ThrowsAny<ArgumentException>(() => new SystemServiceId(value!));
+    }
+
+    [Fact]
+    public void ConstructorAcceptsMaximumLengthUnitName()
+    {
+        var value = $"{new string('a', 247)}.service";
+
+        var id = new SystemServiceId(value);
+
+        Assert.Equal(255, id.Value.Length);
+    }
+
+    [Fact]
+    public void ConstructorRejectsUnitNameLongerThanMaximum()
+    {
+        var value = $"{new string('a', 248)}.service";
+
+        Assert.Throws<ArgumentException>(() => new SystemServiceId(value));
+    }
+
+    [Fact]
+    public void ConstructorDoesNotNormalizeInvalidInput()
+    {
+        Assert.Throws<ArgumentException>(() => new SystemServiceId(" postgresql.service "));
     }
 
     [Fact]
