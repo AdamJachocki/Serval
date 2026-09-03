@@ -47,6 +47,8 @@ Serval.Domain <- Serval.Application <- Serval.Infrastructure
 
 Application-facing abstractions belong in `Serval.Application`; concrete systemd details must not leak into it. References must be added only when current implementation needs them.
 
+The accepted [systemd service discovery strategy](systemd-discovery-strategy.md) uses the system manager's typed D-Bus API. Its future runtime owner is `Serval.Agent`; it must not be wired directly into `Serval.Web`.
+
 ## Data and secret boundaries
 
 SQLite is reserved for non-secret application state such as ACLs, audit metadata, and configuration metadata. Environment-variable values and Linux passwords must never be stored in SQLite or emitted to logs, audit records, telemetry, exceptions, test output, or snapshots.

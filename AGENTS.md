@@ -32,6 +32,7 @@ Never move privileged system operations into `serval-web` for convenience.
 ## systemd rules
 
 - Discover system-level systemd services automatically.
+- System service discovery implementations MUST follow the accepted strategy in [`docs/systemd-discovery-strategy.md`](docs/systemd-discovery-strategy.md).
 - Do not support user services in v1.
 - NEVER modify vendor-owned or user-owned unit files directly.
 - Read existing `Environment=` and `EnvironmentFile=` sources.
