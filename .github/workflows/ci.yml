@@ -41,3 +41,106 @@ jobs:
 
       - name: Test
         run: dotnet test --solution Serval.slnx --configuration Release --no-build --no-restore --report-trx --report-trx-filename "test-results_{asm}_{tfm}_{arch}.trx"
+
+  real-systemd-contract-ubuntu:
+    name: systemd D-Bus contract (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu 22.04 x64
+            runner: ubuntu-22.04
+            systemd_major: '249'
+          - name: Ubuntu 22.04 ARM64
+            runner: ubuntu-22.04-arm
+            systemd_major: '249'
+          - name: Ubuntu 24.04 x64
+            runner: ubuntu-24.04
+            systemd_major: '255'
+          - name: Ubuntu 24.04 ARM64
+            runner: ubuntu-24.04-arm
+            systemd_major: '255'
+          - name: Ubuntu 26.04 x64
+            runner: ubuntu-26.04
+            systemd_major: '259'
+          - name: Ubuntu 26.04 ARM64
+            runner: ubuntu-26.04-arm
+            systemd_major: '259'
+
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+
+      - name: Restore locked dependencies
+        run: dotnet restore Serval.slnx --locked-mode
+
+      - name: Verify typed systemd D-Bus contract
+        env:
+          SERVAL_EXPECTED_SYSTEMD_MAJOR: ${{ matrix.systemd_major }}
+          SERVAL_REAL_SYSTEMD_TESTS: '1'
+        run: dotnet test --project tests/Serval.Systemd.Tests/Serval.Systemd.Tests.csproj --configuration Release --no-restore
+
+  real-systemd-contract-debian:
+    name: systemd D-Bus contract (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Debian 13 x64
+            runner: ubuntu-24.04
+            runtime: linux-x64
+          - name: Debian 13 ARM64
+            runner: ubuntu-24.04-arm
+            runtime: linux-arm64
+
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+
+      - name: Restore locked dependencies
+        run: dotnet restore Serval.slnx --locked-mode
+
+      - name: Publish self-contained contract test
+        run: dotnet publish tests/Serval.Systemd.Tests/Serval.Systemd.Tests.csproj --configuration Release --runtime ${{ matrix.runtime }} --self-contained true --no-restore --output .artifacts/serval-systemd-contract
+
+      - name: Build Debian 13 systemd fixture
+        run: docker build --tag serval-debian-systemd --file tests/Serval.Systemd.Tests/Fixtures/DebianSystemd.Dockerfile .
+
+      - name: Start Debian 13 systemd fixture
+        run: |
+          docker run --detach --name serval-debian-systemd --privileged --cgroupns=host --tmpfs /run --tmpfs /run/lock --volume /sys/fs/cgroup:/sys/fs/cgroup:rw --volume "${{ github.workspace }}/.artifacts/serval-systemd-contract:/tests:ro" serval-debian-systemd
+          for attempt in {1..30}; do
+            if docker exec serval-debian-systemd test -S /run/systemd/private; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs serval-debian-systemd
+          exit 1
+
+      - name: Verify typed systemd D-Bus contract
+        run: docker exec --env SERVAL_EXPECTED_SYSTEMD_MAJOR=257 --env SERVAL_REAL_SYSTEMD_TESTS=1 serval-debian-systemd /tests/Serval.Systemd.Tests -class Serval.Systemd.Tests.DBus.RealSystemdDbusTransportTests -noColor
+
+      - name: Stop Debian 13 systemd fixture
+        if: always()
+        run: docker rm --force serval-debian-systemd || true
