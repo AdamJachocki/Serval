@@ -88,7 +88,7 @@ jobs:
         env:
           SERVAL_EXPECTED_SYSTEMD_MAJOR: ${{ matrix.systemd_major }}
           SERVAL_REAL_SYSTEMD_TESTS: '1'
-        run: dotnet test --project tests/Serval.Systemd.Tests/Serval.Systemd.Tests.csproj --configuration Release --no-restore
+        run: sudo --preserve-env=SERVAL_EXPECTED_SYSTEMD_MAJOR bash tests/Serval.Systemd.Tests/Fixtures/run-enumeration-tests.sh "$(command -v dotnet)" test --project tests/Serval.Systemd.Tests/Serval.Systemd.Tests.csproj --configuration Release --no-restore
 
   real-systemd-contract-debian:
     name: systemd D-Bus contract (${{ matrix.name }})
@@ -128,7 +128,7 @@ jobs:
 
       - name: Start Debian 13 systemd fixture
         run: |
-          docker run --detach --name serval-debian-systemd --privileged --cgroupns=host --tmpfs /run --tmpfs /run/lock --volume /sys/fs/cgroup:/sys/fs/cgroup:rw --volume "${{ github.workspace }}/.artifacts/serval-systemd-contract:/tests:ro" serval-debian-systemd
+          docker run --detach --name serval-debian-systemd --privileged --cgroupns=host --tmpfs /run --tmpfs /run/lock --volume /sys/fs/cgroup:/sys/fs/cgroup:rw --volume "${{ github.workspace }}/.artifacts/serval-systemd-contract:/tests:ro" --volume "${{ github.workspace }}/tests/Serval.Systemd.Tests/Fixtures:/fixtures:ro" serval-debian-systemd
           for attempt in {1..30}; do
             if docker exec serval-debian-systemd test -S /run/systemd/private; then
               exit 0
@@ -139,7 +139,7 @@ jobs:
           exit 1
 
       - name: Verify typed systemd D-Bus contract
-        run: docker exec --env SERVAL_EXPECTED_SYSTEMD_MAJOR=257 --env SERVAL_REAL_SYSTEMD_TESTS=1 serval-debian-systemd /tests/Serval.Systemd.Tests -class Serval.Systemd.Tests.DBus.RealSystemdDbusTransportTests -noColor
+        run: docker exec --env SERVAL_EXPECTED_SYSTEMD_MAJOR=257 --env SERVAL_REAL_SYSTEMD_TESTS=1 serval-debian-systemd bash /fixtures/run-enumeration-tests.sh /tests/Serval.Systemd.Tests -noColor
 
       - name: Stop Debian 13 systemd fixture
         if: always()

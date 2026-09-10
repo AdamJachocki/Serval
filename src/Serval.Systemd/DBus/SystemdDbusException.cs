@@ -7,6 +7,7 @@ internal enum SystemdDbusFailureKind
     IncompatibleReply,
     MalformedReply,
     Timeout,
+    UnsupportedVersion,
 }
 
 internal sealed class SystemdDbusException : Exception
@@ -27,6 +28,8 @@ internal sealed class SystemdDbusException : Exception
     private static string GetMessage(SystemdDbusFailureKind failureKind) =>
         failureKind switch
         {
+            SystemdDbusFailureKind.UnsupportedVersion =>
+                "The systemd version is below the supported baseline.",
             SystemdDbusFailureKind.Unavailable =>
                 "The systemd D-Bus service is unavailable.",
             SystemdDbusFailureKind.RemoteError =>

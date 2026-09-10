@@ -16,6 +16,7 @@ internal sealed class SystemdDbusTransport : ISystemdDbusTransport
     private static readonly TimeSpan MaximumDeadline = TimeSpan.FromMinutes(2);
     private readonly CancellationTokenSource _deadlineCancellation;
     private readonly ConcurrentDictionary<SystemdUnitReference, string> _issuedUnits = new();
+    private readonly ConcurrentDictionary<string, SystemdUnitReference> _unitReferences = new(StringComparer.Ordinal);
     private readonly ISystemdDbusProtocol _protocol;
     private bool _disposed;
 
@@ -199,7 +200,7 @@ internal sealed class SystemdDbusTransport : ISystemdDbusTransport
         }
 
         _disposed = true;
-        _deadlineCancellation.Cancel();
+        await _deadlineCancellation.CancelAsync().ConfigureAwait(false);
         _deadlineCancellation.Dispose();
         await _protocol.DisposeAsync().ConfigureAwait(false);
     }
@@ -272,7 +273,7 @@ internal sealed class SystemdDbusTransport : ISystemdDbusTransport
             {
                 EnsureReplyValue(entry);
                 var objectPath = ValidateObjectPath(entry.ObjectPath);
-                var unit = new SystemdUnitReference();
+                var unit = _unitReferences.GetOrAdd(objectPath, _ => new SystemdUnitReference());
                 _issuedUnits[unit] = objectPath;
                 return new SystemdListedUnit(
                     ValidateUnitName(entry.Name),
