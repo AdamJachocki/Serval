@@ -9,12 +9,15 @@ inactive="$root/$prefix-inactive.service"
 alias="$root/$prefix-alias.service"
 template="$root/$prefix-worker@.service"
 instance="$root/$prefix-worker@installed.service"
-for file in "$inactive" "$alias" "$template" "$instance"; do
+failed="$root/$prefix-failed.service"
+masked="$root/$prefix-masked.service"
+for file in "$inactive" "$alias" "$template" "$instance" "$failed" "$masked"; do
     test ! -e "$file" && test ! -L "$file"
 done
 cleanup() {
     systemctl stop "$prefix-transient.service" "$prefix-worker@loaded.service" || true
-    rm -f -- "$inactive" "$alias" "$template" "$instance"
+    systemctl reset-failed "$prefix-failed.service" || true
+    rm -f -- "$inactive" "$alias" "$template" "$instance" "$failed" "$masked"
     systemctl daemon-reload
 }
 trap cleanup EXIT
@@ -33,7 +36,19 @@ ExecStart=/usr/bin/sleep 300
 UNIT
 ln -s "$prefix-inactive.service" "$alias"
 ln -s "$prefix-worker@.service" "$instance"
+cat > "$failed" <<'UNIT'
+[Unit]
+Description=Serval inspection disposable failed fixture
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/false
+UNIT
+ln -s /dev/null "$masked"
 systemctl daemon-reload
+if systemctl start "$prefix-failed.service"; then
+    echo "The failed-service fixture unexpectedly succeeded." >&2
+    exit 1
+fi
 systemctl start "$prefix-worker@loaded.service"
 systemd-run --quiet --unit="$prefix-transient.service" /usr/bin/sleep 300
 export SERVAL_REAL_SYSTEMD_TESTS=1
