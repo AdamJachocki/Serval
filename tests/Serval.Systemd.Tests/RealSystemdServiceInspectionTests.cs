@@ -35,6 +35,12 @@ public sealed class RealSystemdServiceInspectionTests
         Assert.Equal("active", (await Inspect("-transient.service")).Service.ActiveState.Value);
         Assert.Equal("failed", (await Inspect("-failed.service")).Service.ActiveState.Value);
         Assert.Equal("masked", (await Inspect("-masked.service")).Service.LoadState.Value);
+        var instanceAlias = await Inspect("-helper@installed.service");
+        var installed = await Inspect("-worker@installed.service");
+        Assert.Equal(installed.Service, instanceAlias.Service);
+        Assert.Contains(instanceAlias.Names, name => name.Value == prefix + "-helper@installed.service");
+        Assert.Equal(prefix + "-worker@installed.service", instanceAlias.Service.Id.Value);
+        Assert.NotEqual((await Inspect("-worker@loaded.service")).Service.Id, instanceAlias.Service.Id);
         var missingId = new SystemServiceId(prefix + "-nonexistent.service");
         Assert.Equal(missingId, Assert.IsType<SystemdServiceInspectionResult.NotFound>(
             await inspector.InspectAsync(missingId, TestContext.Current.CancellationToken)).ServiceId);

@@ -265,6 +265,87 @@ public sealed class SystemdServiceEnumeratorTests
         var item = Assert.Single((await Enumerate(protocol, TestContext.Current.CancellationToken)).Services);
         Assert.Equal(["a.service", "alias.service"], item.Names.Select(name => name.Value));
     }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConflictingAliasOwnershipAndCyclesFailRegardlessOfOrder(bool reverse)
+    {
+        foreach (var cyclic in new[] { false, true })
+        {
+            var units = new[] { Unit("a.service"), Unit("b.service") };
+            var protocol = new EnumerationProtocol { Loaded = reverse ? units.Reverse().ToArray() : units };
+            protocol.Properties["a.service"] = Properties("a.service", ["a.service", cyclic ? "b.service" : "shared.service"]);
+            protocol.Properties["b.service"] = Properties("b.service", ["b.service", cyclic ? "a.service" : "shared.service"]);
+            var error = await Assert.ThrowsAsync<SystemdDbusException>(() => Enumerate(protocol, TestContext.Current.CancellationToken));
+            Assert.Equal(SystemdDbusFailureKind.MalformedReply, error.FailureKind);
+            Assert.True(protocol.Disposed);
+        }
+    }
+
+    [Fact]
+    public async Task ThreeUnitAliasCycleFailsWithoutFollowingTheCycle()
+    {
+        var protocol = new EnumerationProtocol { Loaded = [Unit("a.service"), Unit("b.service"), Unit("c.service")] };
+        protocol.Properties["a.service"] = Properties("a.service", ["a.service", "c.service"]);
+        protocol.Properties["b.service"] = Properties("b.service", ["b.service", "a.service"]);
+        protocol.Properties["c.service"] = Properties("c.service", ["c.service", "b.service"]);
+        Assert.Equal(SystemdDbusFailureKind.MalformedReply,
+            (await Assert.ThrowsAsync<SystemdDbusException>(() => Enumerate(protocol, TestContext.Current.CancellationToken))).FailureKind);
+        Assert.Empty(protocol.Lookups);
+    }
+
+    [Fact]
+    public async Task ReusedObjectCannotSilentlyDiscardAnUnrelatedInstance()
+    {
+        var protocol = new EnumerationProtocol
+        {
+            Loaded = [Unit("worker@a.service", "same"), Unit("worker@b.service", "same")],
+        };
+        protocol.Properties["same"] = Properties("worker@a.service");
+        Assert.Equal(SystemdDbusFailureKind.MalformedReply,
+            (await Assert.ThrowsAsync<SystemdDbusException>(() => Enumerate(protocol, TestContext.Current.CancellationToken))).FailureKind);
+        Assert.Equal(1, protocol.Reads);
+    }
+
+    [Theory]
+    [InlineData("plain.service", "worker@a.service")]
+    [InlineData("worker@a.service", "plain.service")]
+    [InlineData("worker@a.service", "other@b.service")]
+    [InlineData("worker@a.service", "worker@.service")]
+    public async Task RejectsAliasesWithIncompatibleInstanceIdentity(string canonical, string alias)
+    {
+        var protocol = new EnumerationProtocol { Loaded = [Unit(canonical)] };
+        protocol.Properties[canonical] = Properties(canonical, [canonical, alias]);
+        Assert.Equal(SystemdDbusFailureKind.MalformedReply,
+            (await Assert.ThrowsAsync<SystemdDbusException>(() => Enumerate(protocol, TestContext.Current.CancellationToken))).FailureKind);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task InstanceAliasesKeepFullCaseSensitiveEscapedIdentityAndDeterministicOrdering(bool reverse)
+    {
+        string[] instances = ["A", "a", @"tenant\x2d1", "tenant-1", "a@b"];
+        var units = instances.Select(instance => Unit("worker@" + instance + ".service")).ToArray();
+        var protocol = new EnumerationProtocol
+        {
+            Files = [File("worker@.service"), File("alias@.service")],
+            Loaded = reverse ? units.Reverse().ToArray() : units,
+        };
+        foreach (var unit in units)
+        {
+            var alias = unit.Name.Replace("worker@", "alias@", StringComparison.Ordinal);
+            protocol.Properties[unit.Name] = Properties(unit.Name, reverse ? [alias, unit.Name] : [unit.Name, alias, alias]);
+        }
+        var snapshot = await Enumerate(protocol, TestContext.Current.CancellationToken);
+        Assert.Equal(units.Select(unit => unit.Name).Order(StringComparer.Ordinal), snapshot.Services.Select(item => item.Service.Id.Value));
+        Assert.Equal(["alias@.service", "worker@.service"], snapshot.Templates.Select(name => name.Value));
+        Assert.All(snapshot.Services, item => Assert.Equal(
+            new[] { item.Service.Id.Value.Replace("worker@", "alias@", StringComparison.Ordinal), item.Service.Id.Value },
+            item.Names.Select(name => name.Value)));
+        Assert.Empty(protocol.Lookups);
+    }
+
     private static Task<ServiceEnumerationSnapshot> Enumerate(EnumerationProtocol protocol, CancellationToken token) =>
         Create(protocol, TimeProvider.System).EnumerateAsync(token);
 
@@ -275,7 +356,7 @@ public sealed class SystemdServiceEnumeratorTests
 
     private static ProtocolListedUnit Unit(string name, string? key = null) =>
         new(name, "listed description", "loaded", "inactive", "dead", "",
-            "/org/freedesktop/systemd1/unit/" + (key ?? name).Replace(".", "_", StringComparison.Ordinal).Replace("@", "_", StringComparison.Ordinal));
+            "/org/freedesktop/systemd1/unit/" + (key ?? name).Replace(".", "_", StringComparison.Ordinal).Replace("@", "_", StringComparison.Ordinal).Replace("\\", "_", StringComparison.Ordinal).Replace("-", "_", StringComparison.Ordinal));
 
     private static ProtocolUnitProperties Properties(string name, string[]? names = null) =>
         new(name, names ?? [name], "description", "loaded", "inactive", "dead");

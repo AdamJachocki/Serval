@@ -1,5 +1,6 @@
 using Serval.Domain.Services;
 using Serval.Systemd.DBus;
+using static Serval.Systemd.SystemdServiceIdentity;
 
 namespace Serval.Systemd;
 
@@ -106,28 +107,19 @@ internal sealed class SystemdServiceInspector
 
         try
         {
-            var id = new SystemServiceId(properties.Id);
-            var names = properties.Names.Select(name => new SystemServiceId(name)).Distinct()
-                .OrderBy(name => name.Value, StringComparer.Ordinal).ToArray();
-            if (!names.Contains(id) || !names.Contains(requested) ||
-                !names.Contains(new SystemServiceId(units[0].Name)) ||
-                names.Any(name => IsTemplate(name.Value)) || IsTemplate(id.Value))
-            {
-                throw new SystemdDbusException(SystemdDbusFailureKind.MalformedReply);
-            }
+            var identity = new SystemdServiceIdentity(properties);
+            identity.RequireName(requested.Value);
+            identity.RequireName(units[0].Name);
 
-            var service = new SystemService(id, properties.Description,
+            var service = new SystemService(identity.Id, properties.Description,
                 new SystemdLoadState(properties.LoadState), new SystemdActiveState(properties.ActiveState),
                 new SystemdSubState(properties.SubState));
             return properties.LoadState == "not-found" ? null :
-                new SystemdServiceInspectionResult.Found(service, Array.AsReadOnly(names));
+                new SystemdServiceInspectionResult.Found(service, identity.Names);
         }
         catch (ArgumentException)
         {
             throw new SystemdDbusException(SystemdDbusFailureKind.MalformedReply);
         }
     }
-
-    private static bool IsTemplate(string name) =>
-        name.IndexOf('@') == name.Length - "@.service".Length;
 }
