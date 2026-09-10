@@ -1,6 +1,6 @@
-using System.Globalization;
 using Serval.Domain.Services;
 using Serval.Systemd.DBus;
+using static Serval.Systemd.SystemdServiceIdentity;
 
 namespace Serval.Systemd;
 
@@ -51,7 +51,8 @@ internal sealed class SystemdServiceEnumerator
         private readonly Dictionary<string, EnumeratedSystemService> _services = new(StringComparer.Ordinal);
         private readonly HashSet<string> _knownNames = new(StringComparer.Ordinal);
         private readonly HashSet<string> _retriedNames = new(StringComparer.Ordinal);
-        private readonly HashSet<SystemdUnitReference> _resolved = [];
+        private readonly Dictionary<SystemdUnitReference, SystemdServiceIdentity> _resolved = [];
+        private readonly Dictionary<SystemServiceId, SystemServiceId> _canonicalByName = [];
         private readonly SortedSet<string> _templates = new(StringComparer.Ordinal);
 
         internal async Task<ServiceEnumerationSnapshot> RunAsync()
@@ -117,8 +118,9 @@ internal sealed class SystemdServiceEnumerator
                     continue;
                 }
 
-                if (_resolved.Contains(entry.Unit))
+                if (_resolved.TryGetValue(entry.Unit, out var resolved))
                 {
+                    resolved.RequireName(entry.Name);
                     continue;
                 }
 
@@ -143,8 +145,10 @@ internal sealed class SystemdServiceEnumerator
                     continue;
                 }
 
-                Add(properties, entry.Name);
-                _resolved.Add(entry.Unit);
+                var identity = new SystemdServiceIdentity(properties);
+                identity.RequireName(entry.Name);
+                Add(properties, identity);
+                _resolved.Add(entry.Unit, identity);
             }
         }
 
@@ -175,15 +179,19 @@ internal sealed class SystemdServiceEnumerator
             }
         }
 
-        private void Add(SystemdUnitProperties properties, string listedName)
+        private void Add(SystemdUnitProperties properties, SystemdServiceIdentity identity)
         {
-            var id = ValidateName(properties.Id);
-            var names = properties.Names.Select(ValidateName).Distinct().ToArray();
-            if (names.Length == 0 || !names.Contains(id) ||
-                !names.Any(name => name.Value == listedName) || IsTemplate(id.Value) ||
-                names.Any(name => IsTemplate(name.Value)))
+            var id = identity.Id;
+            var names = identity.Names.ToArray();
+            foreach (var name in names)
             {
-                throw new SystemdDbusException(SystemdDbusFailureKind.MalformedReply);
+                // Each name has one canonical owner; conflicts and cycles fail the snapshot.
+                if (_canonicalByName.TryGetValue(name, out var owner) && owner != id)
+                {
+                    throw new SystemdDbusException(SystemdDbusFailureKind.MalformedReply);
+                }
+
+                _canonicalByName[name] = id;
             }
 
             try
@@ -205,21 +213,6 @@ internal sealed class SystemdServiceEnumerator
             {
                 throw new SystemdDbusException(SystemdDbusFailureKind.MalformedReply);
             }
-        }
-    }
-
-    private static bool IsTemplate(string name) =>
-        name.IndexOf('@') == name.Length - "@.service".Length;
-
-    private static SystemServiceId ValidateName(string name)
-    {
-        try
-        {
-            return new SystemServiceId(name);
-        }
-        catch (ArgumentException)
-        {
-            throw new SystemdDbusException(SystemdDbusFailureKind.MalformedReply);
         }
     }
 

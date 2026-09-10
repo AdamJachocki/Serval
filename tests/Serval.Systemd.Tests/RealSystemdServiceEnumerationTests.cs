@@ -31,6 +31,15 @@ public sealed class RealSystemdServiceEnumerationTests
         Assert.Contains(prefix + "-worker@installed.service", ids);
         Assert.Contains(prefix + "-worker@loaded.service", ids);
         Assert.Contains(prefix + "-transient.service", ids);
+        var instance = Assert.Single(snapshot.Services, item => item.Service.Id.Value == prefix + "-worker@installed.service");
+        Assert.Contains(instance.Names, name => name.Value == prefix + "-helper@installed.service");
+        Assert.DoesNotContain(prefix + "-helper@installed.service", ids);
+        Assert.Contains(snapshot.Templates, name => name.Value == prefix + "-helper@.service");
+        Assert.DoesNotContain(prefix + "-helper@.service", ids);
+        Assert.Equal(prefix + "-worker@installed.service",
+            new FileInfo("/run/systemd/system/" + prefix + "-helper@installed.service").LinkTarget);
+        Assert.Equal(prefix + "-worker@.service",
+            new FileInfo("/run/systemd/system/" + prefix + "-helper@.service").LinkTarget);
         foreach (var file in files)
         {
             Assert.Equal(before[file], File.ReadAllBytes("/run/systemd/system/" + file));

@@ -289,6 +289,32 @@ public sealed class SystemdServiceInspectorTests
     private static ProtocolUnitProperties Properties(string name = "a.service", string[]? names = null) =>
         new(name, names ?? [name], "property description", "loaded", "inactive", "dead");
 
+    [Theory]
+    [InlineData("alias@tenant.service", "worker@tenant.service", true)]
+    [InlineData("alias@tenant.service", "worker@other.service", false)]
+    [InlineData("alias.service", "worker@tenant.service", false)]
+    [InlineData("alias@tenant.service", "worker.service", false)]
+    [InlineData("alias@tenant.service", "worker@.service", false)]
+    public async Task InspectionUsesTheSameInstanceAliasRules(string alias, string canonical, bool valid)
+    {
+        var protocol = new InspectionProtocol
+        {
+            Units = [Unit(canonical)],
+            Properties = Properties(canonical, [alias, canonical]),
+        };
+        if (valid)
+        {
+            var found = Assert.IsType<SystemdServiceInspectionResult.Found>(await Inspect(protocol, alias));
+            Assert.Equal(canonical, found.Service.Id.Value);
+            Assert.Equal([alias, canonical], found.Names.Select(name => name.Value));
+        }
+        else
+        {
+            Assert.Equal(SystemdDbusFailureKind.MalformedReply,
+                (await Assert.ThrowsAsync<SystemdDbusException>(() => Inspect(protocol, alias))).FailureKind);
+        }
+    }
+
     private static SystemdDbusProtocolException Remote(string name) => new(SystemdDbusProtocolFailureKind.RemoteError, name);
 
     private sealed class InspectionProtocol : ISystemdDbusProtocol
