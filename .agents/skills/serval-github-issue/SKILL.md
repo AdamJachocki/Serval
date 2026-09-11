@@ -41,6 +41,13 @@ Use this skill when the user asks to implement, execute, or complete a GitHub is
 4. Run formatting, build, unit tests, relevant integration tests, and security-sensitive negative-path tests as applicable. Record each relevant gate as passed, failed, or unverified, including the reason for any failure or omission.
 5. Follow `.agents/workflows/post-change-review.md`. The task is complete only after the latest fresh independent reviewer returns `VERDICT: APPROVED` and every applicable mandatory quality gate has passed.
 
+## Efficient local verification
+
+- Prefer context-scoped patches. If a scripted text replacement is needed, check the expected match count before writing and inspect the resulting diff before compiling; identical fragments can belong to different result types.
+- Finish edits and formatting before building, then run tests against that successful build. Do not edit source while a build or test using it is running, or overlap commands that write the same build outputs. Independent read-only checks may run in parallel.
+- For long-running commands, retain the returned session ID and use bounded waits, normally 30 seconds where supported, rather than frequent short polling. Keep individual waits within 60 seconds so progress can still be communicated. Retry a failed check only after a relevant change or a concrete diagnostic hypothesis; retain the original failure in the verification report.
+- For Windows/WSL systemd testing, use the local execution guidance in [the systemd integration reference](../serval-systemd/references/integration-tests.md#local-windowswsl-execution).
+- A process-creation failure such as `setup refresh had errors` is an execution-environment failure, not a repository test failure. If it persists, use the tool's supported approval/escalation mechanism for the specific authorized operation when available; do not disable the sandbox or assume broader permission. Report the blocker if no permitted execution path works.
 ## Handoff
 
 Report the issue number and title, created branch, implementation summary, changed files, quality-gate results, independent-review verdict, and any remaining limitations. Leave the completed changes uncommitted unless the user separately asks for a commit. Do not push, create a pull request, modify or close the GitHub issue, or merge the branch unless the user explicitly requests that action.

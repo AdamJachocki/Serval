@@ -67,7 +67,8 @@ Provide only:
 
 - the original task requirements and acceptance criteria,
 - the comparison base and task-related review scope,
-- access to the current repository state.
+- access to the current repository state;
+- minimal factual execution/access notes when needed, such as a tool process-creation error and the supported execution mode that succeeded. These notes must contain no implementation or review conclusions, credentials, or permission grants; the reviewer remains subject to its own tool approvals.
 
 Do NOT provide:
 

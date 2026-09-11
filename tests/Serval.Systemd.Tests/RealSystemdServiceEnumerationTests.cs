@@ -17,10 +17,12 @@ public sealed class RealSystemdServiceEnumerationTests
         var before = files.ToDictionary(name => name,
             name => File.ReadAllBytes("/run/systemd/system/" + name), StringComparer.Ordinal);
         var snapshot = await new SystemdServiceEnumerator().EnumerateAsync(TestContext.Current.CancellationToken);
+        Assert.True(Assert.Single(snapshot.Services, item => item.Service.Id.Value == "systemd-journald.service").IsProtected);
         var ids = snapshot.Services.Select(item => item.Service.Id.Value).ToArray();
         Assert.Equal(ids.Order(StringComparer.Ordinal), ids);
         Assert.Equal(ids.Length, ids.Distinct(StringComparer.Ordinal).Count());
         var inactive = Assert.Single(snapshot.Services, item => item.Service.Id.Value == prefix + "-inactive.service");
+        Assert.False(inactive.IsProtected);
         Assert.Equal("inactive", inactive.Service.ActiveState.Value);
         Assert.Equal("dead", inactive.Service.SubState.Value);
         Assert.Equal("Serval enumeration disposable inactive fixture", inactive.Service.Description);

@@ -7,6 +7,20 @@ namespace Serval.Systemd.Tests;
 public sealed class SystemdServiceInspectorTests
 {
     [Theory]
+    [InlineData("serval-agent.service", "ordinary.service", true)]
+    [InlineData("ordinary.service", "serval-agent.service", true)]
+    [InlineData("ordinary.service", "ssh-backup.service", false)]
+    public async Task ClassifiesCanonicalAndAliasNames(string canonical, string alias, bool expected)
+    {
+        var protocol = new InspectionProtocol
+        {
+            Properties = Properties(canonical, [canonical, alias]),
+            Units = [Unit(canonical)],
+        };
+        var found = Assert.IsType<SystemdServiceInspectionResult.Found>(await Inspect(protocol, alias));
+        Assert.Equal(expected, found.IsProtected);
+    }
+    [Theory]
     [InlineData("canonical.service")]
     [InlineData("alias.service")]
     public async Task ResolvesCanonicalIdentityAndRetainsAllNames(string requested)
