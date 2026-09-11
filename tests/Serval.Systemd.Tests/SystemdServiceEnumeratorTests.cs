@@ -7,6 +7,20 @@ namespace Serval.Systemd.Tests;
 public sealed class SystemdServiceEnumeratorTests
 {
     [Fact]
+    public async Task ProtectionSurvivesMergedAliases()
+    {
+        var protocol = new EnumerationProtocol
+        {
+            Loaded = [Unit("ordinary.service", "first"), Unit("serval-agent.service", "second"),
+                Unit("ssh-backup.service")],
+        };
+        protocol.Properties["first"] = Properties("ordinary.service");
+        protocol.Properties["second"] = Properties("ordinary.service", ["ordinary.service", "serval-agent.service"]);
+        var services = (await Enumerate(protocol, TestContext.Current.CancellationToken)).Services;
+        Assert.True(Assert.Single(services, item => item.Service.Id.Value == "ordinary.service").IsProtected);
+        Assert.False(Assert.Single(services, item => item.Service.Id.Value == "ssh-backup.service").IsProtected);
+    }
+    [Fact]
     public async Task CombinesInstalledAndLoadedServicesAndPreservesCanonicalNamesAndStates()
     {
         var protocol = new EnumerationProtocol

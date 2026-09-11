@@ -22,8 +22,13 @@ public sealed class RealSystemdServiceInspectionTests
             Assert.IsType<SystemdServiceInspectionResult.Found>(await inspector.InspectAsync(
                 new SystemServiceId(prefix + suffix), TestContext.Current.CancellationToken));
 
+        var journal = Assert.IsType<SystemdServiceInspectionResult.Found>(await inspector.InspectAsync(
+            new SystemServiceId("systemd-journald.service"), TestContext.Current.CancellationToken));
+        Assert.True(journal.IsProtected);
         var canonical = await Inspect("-inactive.service");
         var alias = await Inspect("-alias.service");
+        Assert.False(canonical.IsProtected);
+        Assert.False(alias.IsProtected);
         Assert.Equal(canonical.Service, alias.Service);
         Assert.Equal(canonical.Names, alias.Names);
         Assert.Equal(prefix + "-inactive.service", alias.Service.Id.Value);

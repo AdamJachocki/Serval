@@ -9,4 +9,7 @@ internal sealed record ServiceEnumerationSnapshot(
 
 internal sealed record EnumeratedSystemService(
     SystemService Service,
-    IReadOnlyList<SystemServiceId> Names);
+    IReadOnlyList<SystemServiceId> Names)
+{
+    internal bool IsProtected => BuiltInProtectedServices.IsProtected(Service.Id, Names);
+}

@@ -8,7 +8,10 @@ internal abstract record SystemdServiceInspectionResult
     private SystemdServiceInspectionResult() { }
 
     internal sealed record Found(SystemService Service, IReadOnlyList<SystemServiceId> Names)
-        : SystemdServiceInspectionResult;
+        : SystemdServiceInspectionResult
+    {
+        internal bool IsProtected => BuiltInProtectedServices.IsProtected(Service.Id, Names);
+    }
 
     internal sealed record NotFound(SystemServiceId ServiceId) : SystemdServiceInspectionResult;
 }

@@ -19,3 +19,32 @@ Required coverage:
 | Failure safety | Interrupted/failed write leaves the previous complete file; symlink target is rejected |
 
 For every privileged operation, include both permitted and denied paths and apply `serval-privileged-operation` as well.
+
+## Local Windows/WSL execution
+
+Before preparing a local run, verify that the selected WSL distribution runs
+systemd as PID 1 and provides the required system bus. Inspect the existing
+`tests/Serval.Systemd.Tests/Fixtures/run-enumeration-tests.sh` harness and the CI
+commands; reuse its disposable fixtures and cleanup rather than recreating units
+manually. Running the harness needs the execution permissions appropriate to its
+systemd mutations; this guidance does not itself grant elevation.
+
+When publishing on Windows, select the Linux runtime matching the WSL architecture
+and publish self-contained test output into a task-specific ignored artifact
+directory. Copy the complete output to a fresh `mktemp -d` directory on the Linux
+filesystem, such as under `/tmp`, and execute the tests there. Prefer this over
+running binaries directly from `/mnt/c` or `/mnt/d`: cross-filesystem loading can
+consume short operation deadlines. Keep source and repository edits in the
+original workspace. Remove only the temporary directory created for this run,
+after verifying its resolved path belongs to the intended temporary root.
+
+If an operation times out, record the failing test and deadline, then investigate
+startup, filesystem placement, system-manager readiness, or host load before
+retrying. Do not raise production deadlines or disable assertions to accommodate
+a slow development host. A successful rerun is evidence for that environment,
+not proof of the exact cause of an earlier failure. Keep reporting any unresolved
+failure instead of rerunning until an intermittent test happens to pass.
+
+Report local Linux/systemd results separately from Windows tests (which skip the
+real-systemd cases) and the supported-distribution/architecture CI matrix. A local
+WSL pass does not establish that the CI matrix passed or replace its requirement.
