@@ -190,3 +190,8 @@ Agents MUST NOT weaken these invariants to simplify implementation:
 6. Save and restart remain separate explicit actions.
 7. Authorization is checked server-side for every protected operation.
 8. New privileged capabilities must be minimal, explicit, auditable, and tested.
+
+## Output style
+- Reply in unified diff form. No full-file rewrites unless asked.
+- No preamble, no trailing summary of what you just did.
+- For research questions, answer in 10 lines or fewer unless I ask for depth.

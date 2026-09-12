@@ -13,7 +13,12 @@ public sealed class RealSystemdServiceEnumerationTests
         var prefix = Environment.GetEnvironmentVariable("SERVAL_ENUMERATION_FIXTURE_PREFIX");
         Assert.NotNull(prefix);
         Assert.Matches("^serval-enumeration-test-[a-f0-9-]+$", prefix);
-        string[] files = [prefix + "-inactive.service", prefix + "-worker@.service", prefix + "-worker@installed.service"];
+        var instanceId = prefix["serval-enumeration-test-".Length..];
+        var privilegedName = "serval-agent@" + instanceId + ".service";
+        var privilegedAliasName = "serval-exclusion-alias@" + instanceId + ".service";
+        var lookalikeName = "serval-agent-helper@" + instanceId + ".service";
+        string[] files = [prefix + "-inactive.service", prefix + "-worker@.service",
+            prefix + "-worker@installed.service", privilegedName, lookalikeName];
         var before = files.ToDictionary(name => name,
             name => File.ReadAllBytes("/run/systemd/system/" + name), StringComparer.Ordinal);
         var snapshot = await new SystemdServiceEnumerator().EnumerateAsync(TestContext.Current.CancellationToken);
@@ -33,15 +38,21 @@ public sealed class RealSystemdServiceEnumerationTests
         Assert.Contains(prefix + "-worker@installed.service", ids);
         Assert.Contains(prefix + "-worker@loaded.service", ids);
         Assert.Contains(prefix + "-transient.service", ids);
-        var instance = Assert.Single(snapshot.Services, item => item.Service.Id.Value == prefix + "-worker@installed.service");
+        var instance = Assert.Single(snapshot.Services,
+            item => item.Service.Id.Value == prefix + "-worker@installed.service");
         Assert.Contains(instance.Names, name => name.Value == prefix + "-helper@installed.service");
         Assert.DoesNotContain(prefix + "-helper@installed.service", ids);
-        Assert.Contains(snapshot.Templates, name => name.Value == prefix + "-helper@.service");
+        Assert.DoesNotContain(snapshot.Templates, name => name.Value == prefix + "-helper@.service");
         Assert.DoesNotContain(prefix + "-helper@.service", ids);
+        Assert.DoesNotContain(privilegedName, ids);
+        Assert.DoesNotContain(privilegedAliasName, ids);
+        Assert.Contains(lookalikeName, ids);
         Assert.Equal(prefix + "-worker@installed.service",
             new FileInfo("/run/systemd/system/" + prefix + "-helper@installed.service").LinkTarget);
         Assert.Equal(prefix + "-worker@.service",
             new FileInfo("/run/systemd/system/" + prefix + "-helper@.service").LinkTarget);
+        Assert.Equal(privilegedName,
+            new FileInfo("/run/systemd/system/" + privilegedAliasName).LinkTarget);
         foreach (var file in files)
         {
             Assert.Equal(before[file], File.ReadAllBytes("/run/systemd/system/" + file));

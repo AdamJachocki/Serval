@@ -14,7 +14,12 @@ public sealed class RealSystemdServiceInspectionTests
         var prefix = Environment.GetEnvironmentVariable("SERVAL_ENUMERATION_FIXTURE_PREFIX");
         Assert.NotNull(prefix);
         Assert.Matches("^serval-enumeration-test-[a-f0-9-]+$", prefix);
-        string[] files = [prefix + "-inactive.service", prefix + "-worker@.service", prefix + "-failed.service"];
+        var instanceId = prefix["serval-enumeration-test-".Length..];
+        var privilegedName = "serval-agent@" + instanceId + ".service";
+        var privilegedAliasName = "serval-exclusion-alias@" + instanceId + ".service";
+        var lookalikeName = "serval-agent-helper@" + instanceId + ".service";
+        string[] files = [prefix + "-inactive.service", prefix + "-worker@.service",
+            privilegedName, lookalikeName, prefix + "-failed.service"];
         var before = files.ToDictionary(name => name,
             name => File.ReadAllBytes("/run/systemd/system/" + name), StringComparer.Ordinal);
         var inspector = new SystemdServiceInspector();
@@ -46,6 +51,15 @@ public sealed class RealSystemdServiceInspectionTests
         Assert.Contains(instanceAlias.Names, name => name.Value == prefix + "-helper@installed.service");
         Assert.Equal(prefix + "-worker@installed.service", instanceAlias.Service.Id.Value);
         Assert.NotEqual((await Inspect("-worker@loaded.service")).Service.Id, instanceAlias.Service.Id);
+        foreach (var name in new[] { privilegedName, privilegedAliasName })
+        {
+            var id = new SystemServiceId(name);
+            Assert.Equal(id, Assert.IsType<SystemdServiceInspectionResult.NotFound>(
+                await inspector.InspectAsync(id, TestContext.Current.CancellationToken)).ServiceId);
+        }
+        Assert.Equal(lookalikeName, Assert.IsType<SystemdServiceInspectionResult.Found>(
+            await inspector.InspectAsync(new SystemServiceId(lookalikeName),
+                TestContext.Current.CancellationToken)).Service.Id.Value);
         var missingId = new SystemServiceId(prefix + "-nonexistent.service");
         Assert.Equal(missingId, Assert.IsType<SystemdServiceInspectionResult.NotFound>(
             await inspector.InspectAsync(missingId, TestContext.Current.CancellationToken)).ServiceId);
@@ -57,5 +71,7 @@ public sealed class RealSystemdServiceInspectionTests
         }
         Assert.Equal("/dev/null", new FileInfo("/run/systemd/system/" + prefix + "-masked.service").LinkTarget);
         Assert.Equal(prefix + "-inactive.service", new FileInfo("/run/systemd/system/" + prefix + "-alias.service").LinkTarget);
+        Assert.Equal(privilegedName,
+            new FileInfo("/run/systemd/system/" + privilegedAliasName).LinkTarget);
     }
 }

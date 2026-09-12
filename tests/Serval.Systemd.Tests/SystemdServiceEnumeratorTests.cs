@@ -7,7 +7,7 @@ namespace Serval.Systemd.Tests;
 public sealed class SystemdServiceEnumeratorTests
 {
     [Fact]
-    public async Task ProtectionSurvivesMergedAliases()
+    public async Task ExcludedAliasRemovesCanonicalServiceAfterNamesAreMerged()
     {
         var protocol = new EnumerationProtocol
         {
@@ -17,8 +17,28 @@ public sealed class SystemdServiceEnumeratorTests
         protocol.Properties["first"] = Properties("ordinary.service");
         protocol.Properties["second"] = Properties("ordinary.service", ["ordinary.service", "serval-agent.service"]);
         var services = (await Enumerate(protocol, TestContext.Current.CancellationToken)).Services;
-        Assert.True(Assert.Single(services, item => item.Service.Id.Value == "ordinary.service").IsProtected);
-        Assert.False(Assert.Single(services, item => item.Service.Id.Value == "ssh-backup.service").IsProtected);
+        Assert.DoesNotContain(services, item => item.Service.Id.Value == "ordinary.service");
+        Assert.False(Assert.Single(services).IsProtected);
+    }
+
+    [Fact]
+    public async Task ExcludesAgentCanonicalInstancesAndTemplatesButNotLookalikesOrOtherProtectedServices()
+    {
+        var protocol = new EnumerationProtocol
+        {
+            Files = [File("serval-agent@.service"), File("ordinary@.service"),
+                File("ordinary-alias@.service", "alias")],
+            Loaded = [Unit("serval-agent.service"), Unit("serval-agent@tenant.service"),
+                Unit("loaded-template@.service"),
+                Unit("serval-agent-helper.service"), Unit("ssh.service")],
+        };
+
+        var snapshot = await Enumerate(protocol, TestContext.Current.CancellationToken);
+
+        Assert.Equal(["serval-agent-helper.service", "ssh.service"],
+            snapshot.Services.Select(item => item.Service.Id.Value));
+        Assert.Equal("ordinary@.service", Assert.Single(snapshot.Templates).Value);
+        Assert.True(Assert.Single(snapshot.Services, item => item.Service.Id.Value == "ssh.service").IsProtected);
     }
     [Fact]
     public async Task CombinesInstalledAndLoadedServicesAndPreservesCanonicalNamesAndStates()
@@ -366,7 +386,8 @@ public sealed class SystemdServiceEnumeratorTests
     private static SystemdServiceEnumerator Create(EnumerationProtocol protocol, TimeProvider time) =>
         new(_ => Task.FromResult<ISystemdDbusTransport>(new SystemdDbusTransport(protocol, TimeSpan.FromMinutes(1))), time);
 
-    private static ProtocolUnitFileEntry File(string name) => new("/usr/lib/systemd/system/" + name, "disabled");
+    private static ProtocolUnitFileEntry File(string name, string state = "disabled") =>
+        new("/usr/lib/systemd/system/" + name, state);
 
     private static ProtocolListedUnit Unit(string name, string? key = null) =>
         new(name, "listed description", "loaded", "inactive", "dead", "",

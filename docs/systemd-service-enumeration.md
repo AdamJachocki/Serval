@@ -14,6 +14,11 @@ loaded services, then resolves missing concrete installed services by name.
 Linux basenames are validated without filesystem access. Uninstantiated templates
 remain internal metadata. Each distinct unit object is read once on the normal
 path; identities are merged by ordinal canonical ID and aliases are retained.
+After all aliases are merged, the fixed Serval privileged-unit exclusion removes
+agent identities and templates before publishing the internal snapshot; see
+[`serval-privileged-unit-exclusion.md`](serval-privileged-unit-exclusion.md).
+Because `ListUnitFiles` does not reveal alias targets, template entries in the
+`alias` state are omitted fail-closed rather than exposed under an unresolved name.
 Descriptions and unknown state strings survive mapping. Services, names and
 templates are sorted ordinally and published as read-only collections only after
 the complete operation succeeds.
