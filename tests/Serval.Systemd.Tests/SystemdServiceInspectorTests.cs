@@ -7,8 +7,7 @@ namespace Serval.Systemd.Tests;
 public sealed class SystemdServiceInspectorTests
 {
     [Theory]
-    [InlineData("serval-agent.service", "ordinary.service", true)]
-    [InlineData("ordinary.service", "serval-agent.service", true)]
+    [InlineData("systemd-journald.service", "ordinary.service", true)]
     [InlineData("ordinary.service", "ssh-backup.service", false)]
     public async Task ClassifiesCanonicalAndAliasNames(string canonical, string alias, bool expected)
     {
@@ -19,6 +18,44 @@ public sealed class SystemdServiceInspectorTests
         };
         var found = Assert.IsType<SystemdServiceInspectionResult.Found>(await Inspect(protocol, alias));
         Assert.Equal(expected, found.IsProtected);
+    }
+
+    [Theory]
+    [InlineData("serval-agent.service", "ordinary.service", "ordinary.service")]
+    [InlineData("ordinary.service", "serval-agent.service", "ordinary.service")]
+    [InlineData("serval-agent@tenant.service", "helper@tenant.service", "helper@tenant.service")]
+    public async Task AliasCannotReintroduceExcludedAgentUnit(
+        string canonical, string alias, string requested)
+    {
+        var protocol = new InspectionProtocol
+        {
+            Properties = Properties(canonical, [canonical, alias]),
+            Units = [Unit(canonical)],
+        };
+
+        var notFound = Assert.IsType<SystemdServiceInspectionResult.NotFound>(
+            await Inspect(protocol, requested));
+        Assert.Equal(requested, notFound.ServiceId.Value);
+        Assert.Single(protocol.Lookups);
+    }
+
+    [Theory]
+    [InlineData("serval-agent.service")]
+    [InlineData("serval-agent@tenant.service")]
+    public async Task DirectAgentNameIsExcludedBeforeConnecting(string name)
+    {
+        var connected = false;
+        var inspector = new SystemdServiceInspector(_ =>
+        {
+            connected = true;
+            throw new InvalidOperationException();
+        }, TimeProvider.System);
+
+        var result = await inspector.InspectAsync(
+            new SystemServiceId(name), TestContext.Current.CancellationToken);
+
+        Assert.Equal(name, Assert.IsType<SystemdServiceInspectionResult.NotFound>(result).ServiceId.Value);
+        Assert.False(connected);
     }
     [Theory]
     [InlineData("canonical.service")]

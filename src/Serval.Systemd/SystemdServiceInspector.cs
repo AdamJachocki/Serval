@@ -35,6 +35,11 @@ internal sealed class SystemdServiceInspector
             throw new ArgumentException("Inspection requires a concrete service identifier.", nameof(serviceId));
         }
 
+        if (ServalPrivilegedUnits.IsExcluded(serviceId))
+        {
+            return new SystemdServiceInspectionResult.NotFound(serviceId);
+        }
+
         using var deadline = new CancellationTokenSource(Deadline, _timeProvider);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
         try
@@ -66,7 +71,7 @@ internal sealed class SystemdServiceInspector
         }
     }
 
-    private static async Task<SystemdServiceInspectionResult.Found?> ResolveAsync(
+    private static async Task<SystemdServiceInspectionResult?> ResolveAsync(
         ISystemdDbusTransport transport, SystemServiceId requested, CancellationToken token)
     {
         IReadOnlyList<SystemdListedUnit> units;
@@ -110,6 +115,11 @@ internal sealed class SystemdServiceInspector
             var identity = new SystemdServiceIdentity(properties);
             identity.RequireName(requested.Value);
             identity.RequireName(units[0].Name);
+
+            if (ServalPrivilegedUnits.IsExcluded(identity.Id, identity.Names))
+            {
+                return new SystemdServiceInspectionResult.NotFound(requested);
+            }
 
             var service = new SystemService(identity.Id, properties.Description,
                 new SystemdLoadState(properties.LoadState), new SystemdActiveState(properties.ActiveState),

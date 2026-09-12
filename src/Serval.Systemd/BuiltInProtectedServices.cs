@@ -9,7 +9,6 @@ internal static class BuiltInProtectedServices
     // Every exact name and template family is explained in docs/protected-services.md.
     private static readonly FrozenSet<string> ExactNames = new[]
     {
-        "serval-agent.service",
         "dbus.service",
         "dbus-broker.service",
         "systemd-journald.service",
@@ -27,7 +26,6 @@ internal static class BuiltInProtectedServices
 
     private static readonly FrozenSet<string> TemplateFamilies = new[]
     {
-        "serval-agent",
         "systemd-journald",
         "ssh",
         "sshd",
@@ -35,6 +33,7 @@ internal static class BuiltInProtectedServices
     }.ToFrozenSet(StringComparer.Ordinal);
 
     internal static bool IsProtected(SystemServiceId id) =>
+        ServalPrivilegedUnits.IsExcluded(id) ||
         ExactNames.Contains(id.Value) || IsProtectedTemplateFamily(id.Value);
 
     internal static bool IsProtected(SystemServiceId canonicalId, IReadOnlyList<SystemServiceId> names) =>

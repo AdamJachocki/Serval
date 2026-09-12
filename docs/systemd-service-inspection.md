@@ -7,6 +7,9 @@ Agent over the existing typed system-bus transport. It accepts one bounded
 `SystemServiceId` and cancellation token. Null, invalid and uninstantiated
 template identifiers are rejected before connection. Concrete instances are
 resolved without starting them.
+Direct Serval agent names return `NotFound` before connection. An ordinary alias
+that resolves to a Serval agent identity also returns `NotFound`; see
+[`serval-privileged-unit-exclusion.md`](serval-privileged-unit-exclusion.md).
 
 The operation checks the supported manager version, calls `ListUnitsByNames`
 with exactly the requested name and reads the returned unit's six metadata

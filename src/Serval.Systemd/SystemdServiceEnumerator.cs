@@ -73,7 +73,13 @@ internal sealed class SystemdServiceEnumerator
                 ValidateName(name);
                 if (IsTemplate(name))
                 {
-                    _templates.Add(name);
+                    // Template aliases cannot be resolved through a concrete unit object.
+                    // Retain only authoritative non-alias definitions so an alias cannot
+                    // reintroduce a Serval-owned privileged template.
+                    if (!string.Equals(file.State, "alias", StringComparison.Ordinal))
+                    {
+                        _templates.Add(name);
+                    }
                 }
                 else
                 {
@@ -97,8 +103,11 @@ internal sealed class SystemdServiceEnumerator
             token.ThrowIfCancellationRequested();
             return new ServiceEnumerationSnapshot(
                 Array.AsReadOnly(_services.OrderBy(pair => pair.Key, StringComparer.Ordinal)
-                    .Select(pair => pair.Value).ToArray()),
-                Array.AsReadOnly(_templates.Select(name => new SystemServiceId(name)).ToArray()));
+                    .Select(pair => pair.Value)
+                    .Where(item => !ServalPrivilegedUnits.IsExcluded(item.Service.Id, item.Names))
+                    .ToArray()),
+                Array.AsReadOnly(_templates.Select(name => new SystemServiceId(name))
+                    .Where(template => !ServalPrivilegedUnits.IsExcluded(template)).ToArray()));
         }
 
         private async Task ResolveAllAsync(IReadOnlyList<SystemdListedUnit> entries, bool retry)
@@ -114,7 +123,7 @@ internal sealed class SystemdServiceEnumerator
 
                 if (IsTemplate(entry.Name))
                 {
-                    _templates.Add(entry.Name);
+                    // ListUnitFiles is the authoritative template-definition source.
                     continue;
                 }
 
