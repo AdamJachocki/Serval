@@ -172,6 +172,9 @@ Critical systemd behavior must be tested against a real Linux/systemd environmen
 - Keep tool output to the smallest practical size, normally no more than 8,000 tokens per call. List matching files or counts before requesting potentially large content.
 - After a command passes, repeat or broaden it only after a relevant change, a failure, or an unresolved concern. Mandatory quality gates and independent review must never be skipped to save tokens.
 - Do not repeat an unchanged failed command. For a process-creation failure, make at most one retry using the supported specific escalation path when authorized; if it still fails, report the environment blocker.
+- For repository file edits, invoke the dedicated `apply_patch` tool exposed by the runtime directly. Do not search for or invoke a shell command named `apply_patch`, call Codex executable internals such as `--codex-run-as-apply-patch`, or hard-code paths inside the Codex installation.
+- Use repository-relative file paths in patch payloads. Never use absolute paths in a patch.
+- If the dedicated `apply_patch` tool is unavailable or fails because of tool provisioning, report the tooling blocker instead of constructing a shell-based file-editing fallback. A rejected patch caused by stale or ambiguous file context may be corrected once after rereading the focused target range.
 
 ## Mandatory post-change review
 
