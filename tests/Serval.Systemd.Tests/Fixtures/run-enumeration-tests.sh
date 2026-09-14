@@ -1,6 +1,13 @@
 #!/bin/bash
 # Test harness only; production discovery never executes processes or writes units.
-set -euo pipefail
+set -Eeuo pipefail
+report_error() {
+    local status="$?"
+    printf 'Harness command failed at line %s with status %s: %s\n' \
+        "$1" "$status" "$2" >&2
+    return "$status"
+}
+trap 'report_error "$LINENO" "$BASH_COMMAND"' ERR
 export SERVAL_ENUMERATION_FIXTURE_PREFIX="serval-enumeration-test-$(cat /proc/sys/kernel/random/uuid)"
 prefix="$SERVAL_ENUMERATION_FIXTURE_PREFIX"
 [[ "$prefix" =~ ^serval-enumeration-test-[a-f0-9-]+$ ]]
@@ -20,9 +27,39 @@ lookalike_name="serval-agent-helper@$instance_id.service"
 lookalike="$root/$lookalike_name"
 failed="$root/$prefix-failed.service"
 masked="$root/$prefix-masked.service"
-for name in "$privileged_name" "$privileged_alias_name" "$lookalike_name"; do
-    test -z "$(systemctl list-unit-files --no-legend --plain "$name")"
-    test -z "$(systemctl list-units --all --no-legend --plain "$name")"
+fixture_names=(
+    "$prefix-inactive.service"
+    "$prefix-alias.service"
+    "$prefix-worker@.service"
+    "$prefix-worker@installed.service"
+    "$prefix-helper@installed.service"
+    "$prefix-helper@.service"
+    "$prefix-worker@loaded.service"
+    "$prefix-transient.service"
+    "$privileged_name"
+    "$privileged_alias_name"
+    "$lookalike_name"
+    "$prefix-failed.service"
+    "$prefix-masked.service"
+)
+is_listed() {
+    local target="$1"
+    local listing="$2"
+    local line
+    while IFS= read -r line; do
+        if [[ "${line%% *}" == "$target" ]]; then
+            return 0
+        fi
+    done <<< "$listing"
+    return 1
+}
+unit_files_before="$(systemctl list-unit-files --all --no-legend --plain --type=service)"
+loaded_units_before="$(systemctl list-units --all --no-legend --plain --type=service)"
+for name in "${fixture_names[@]}"; do
+    if is_listed "$name" "$unit_files_before" || is_listed "$name" "$loaded_units_before"; then
+        printf '%s: fixture identity already exists in the systemd manager\n' "$name" >&2
+        exit 1
+    fi
 done
 for file in "$inactive" "$alias" "$template" "$instance" "$instance_alias" "$template_alias" "$privileged" "$privileged_alias" "$lookalike" "$failed" "$masked"; do
     test ! -e "$file" && test ! -L "$file"
@@ -81,5 +118,98 @@ if systemctl start "$prefix-failed.service"; then
 fi
 systemctl start "$prefix-worker@loaded.service"
 systemd-run --quiet --unit="$prefix-transient.service" /usr/bin/sleep 300
+assert_state() {
+    local unit="$1"
+    local property
+    local actual
+    shift
+    for property in LoadState ActiveState SubState; do
+        actual="$(systemctl show --no-pager --property="$property" --value "$unit")"
+        if [[ "$actual" != "$1" ]]; then
+            printf '%s: expected %s=%s, got %s\n' "$unit" "$property" "$1" "$actual" >&2
+            return 1
+        fi
+        shift
+    done
+}
+assert_not_loaded() {
+    local loaded
+    loaded="$(systemctl list-units --all --no-legend --plain --type=service)"
+    if is_listed "$1" "$loaded"; then
+        printf '%s: expected unit to remain absent from the loaded-unit set\n' "$1" >&2
+        return 1
+    fi
+}
+assert_installed_fixtures_unloaded() {
+    assert_not_loaded "$prefix-inactive.service"
+    assert_not_loaded "$prefix-alias.service"
+    assert_not_loaded "$prefix-worker@installed.service"
+    assert_not_loaded "$prefix-helper@installed.service"
+    assert_not_loaded "$privileged_name"
+    assert_not_loaded "$privileged_alias_name"
+    assert_not_loaded "$lookalike_name"
+    assert_not_loaded "$prefix-masked.service"
+}
+assert_templates_unloaded() {
+    assert_not_loaded "$prefix-worker@.service"
+    assert_not_loaded "$prefix-helper@.service"
+}
+assert_runtime_states() {
+    assert_state "$prefix-worker@loaded.service" loaded active running
+    assert_state "$prefix-transient.service" loaded active running
+    assert_state "$prefix-failed.service" loaded failed failed
+}
+assert_discovery_states() {
+    assert_state "$prefix-inactive.service" loaded inactive dead
+    assert_state "$prefix-alias.service" loaded inactive dead
+    assert_state "$prefix-worker@installed.service" loaded inactive dead
+    assert_state "$prefix-helper@installed.service" loaded inactive dead
+    assert_state "$privileged_name" loaded inactive dead
+    assert_state "$privileged_alias_name" loaded inactive dead
+    assert_state "$lookalike_name" loaded inactive dead
+    assert_state "$prefix-masked.service" masked inactive dead
+    assert_runtime_states
+}
+snapshot_runtime_lifecycle() {
+    local unit
+    local property
+    for unit in "$prefix-worker@loaded.service" "$prefix-transient.service" "$prefix-failed.service"; do
+        printf '%s\n' "$unit"
+        for property in InvocationID StateChangeTimestampMonotonic ActiveEnterTimestampMonotonic \
+            InactiveEnterTimestampMonotonic ExecMainStartTimestampMonotonic ExecMainExitTimestampMonotonic; do
+            printf '%s=%s\n' "$property" \
+                "$(systemctl show --no-pager --property="$property" --value "$unit")"
+        done
+    done
+}
+snapshot_inactive_journal() {
+    local unit
+    for unit in "$prefix-inactive.service" "$prefix-worker@installed.service" \
+        "$privileged_name" "$lookalike_name" "$prefix-masked.service"; do
+        printf '%s\n' "$unit"
+        journalctl --quiet --unit="$unit" --no-pager --output=short-monotonic
+    done
+}
+assert_unchanged() {
+    local description="$1"
+    local before="$2"
+    local after="$3"
+    if [[ "$after" != "$before" ]]; then
+        printf '%s changed during discovery:\n' "$description" >&2
+        diff -u <(printf '%s\n' "$before") <(printf '%s\n' "$after") >&2 || true
+        return 1
+    fi
+}
+assert_installed_fixtures_unloaded
+assert_templates_unloaded
+assert_runtime_states
+lifecycle_before="$(snapshot_runtime_lifecycle)"
+journal_before="$(snapshot_inactive_journal)"
 export SERVAL_REAL_SYSTEMD_TESTS=1
 "$@"
+assert_discovery_states
+assert_templates_unloaded
+lifecycle_after="$(snapshot_runtime_lifecycle)"
+journal_after="$(snapshot_inactive_journal)"
+assert_unchanged "Runtime lifecycle properties" "$lifecycle_before" "$lifecycle_after"
+assert_unchanged "Inactive fixture journal" "$journal_before" "$journal_after"
