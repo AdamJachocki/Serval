@@ -35,6 +35,14 @@ behavior. If uncertain whether the exemption applies, run the review.
 Complete the requested, task-scoped change and run the relevant repository
 quality gates. Fix failures introduced by the change before requesting review.
 
+Before creating the reviewer, inspect the complete task diff and trace every
+acceptance criterion to implementation and verification evidence. For security-
+sensitive work, explicitly check the applicable permitted, denied, malformed,
+alias/canonical-identity, and real-integration paths required by project skills.
+Do not start review while this self-check exposes an incomplete requirement or
+unresolved concern. The self-check does not replace independent review, and its
+conclusions must not be supplied to the reviewer.
+
 Record every relevant quality gate as passed, failed, or unverified. A failed
 check has a known unsuccessful result. An unverified check was not run or did
 not produce a conclusive result.
@@ -42,6 +50,10 @@ not produce a conclusive result.
 Document pre-existing, unrelated, or environment-dependent failures as known
 failures with their cause. Do not expand the task merely to fix them, but do not
 treat a mandatory quality gate as satisfied while it is failed or unverified.
+
+Run each applicable gate once for a coherent implementation state. Repeat a
+passed gate only after a relevant implementation or test change, or when a
+failure or unresolved concern makes the earlier result insufficient.
 
 ### 2. Establish the review scope
 

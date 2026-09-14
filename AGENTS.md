@@ -164,6 +164,15 @@ Privileged and security-sensitive behavior requires tests for both permitted and
 
 Critical systemd behavior must be tested against a real Linux/systemd environment in CI. Do not rely only on mocks.
 
+## Context and execution efficiency
+
+- Start repository discovery with exact paths, filenames, or symbols. Use file-name-only searches before reading matches, and avoid broad generic patterns across the whole repository.
+- Exclude generated, compiled, vendored, artifact, and large static-asset directories from searches unless the task specifically concerns them.
+- Read the diff and focused line ranges first. Read complete large files or batches of files only when their full structure is necessary.
+- Keep tool output to the smallest practical size, normally no more than 8,000 tokens per call. List matching files or counts before requesting potentially large content.
+- After a command passes, repeat or broaden it only after a relevant change, a failure, or an unresolved concern. Mandatory quality gates and independent review must never be skipped to save tokens.
+- Do not repeat an unchanged failed command. For a process-creation failure, make at most one retry using the supported specific escalation path when authorized; if it still fails, report the environment blocker.
+
 ## Mandatory post-change review
 
 - After every change covered by `.agents/workflows/post-change-review.md`, run that workflow before considering the task complete.
