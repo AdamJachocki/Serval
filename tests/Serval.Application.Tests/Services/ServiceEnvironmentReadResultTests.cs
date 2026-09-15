@@ -10,7 +10,7 @@ public sealed class ServiceEnvironmentReadResultTests
     [Fact]
     public void EmptyEnvironmentIsACompleteSuccess()
     {
-        var result = new ServiceEnvironmentReadResult.Success(new SystemServiceId("example.service"), [], [], new EnvironmentValues([]));
+        using var result = new ServiceEnvironmentReadResult.Success(new SystemServiceId("example.service"), [], [], new EnvironmentValues([]));
         Assert.Equal(EnvironmentModelScope.SupportedDeclarations, result.Scope);
         Assert.Empty(result.Sources);
         Assert.Empty(result.Variables);
@@ -51,15 +51,16 @@ public sealed class ServiceEnvironmentReadResultTests
         var id = new SystemServiceId("example.service");
         var source = new EnvironmentSourceMetadata(0, EnvironmentSourceKind.ManagerEnvironment);
         var variable = new EnvironmentVariableMetadata("SYNTHETIC", 0);
-        var values = CreateValues();
-        Assert.Throws<ArgumentException>(() => new ServiceEnvironmentReadResult.Success(id, [source], [variable], new EnvironmentValues([])));
+        using var values = CreateValues();
+        using var empty = new EnvironmentValues([]);
+        Assert.Throws<ArgumentException>(() => new ServiceEnvironmentReadResult.Success(id, [source], [variable], empty));
         Assert.Throws<ArgumentException>(() => new ServiceEnvironmentReadResult.Success(id, [source], [], values));
         Assert.Throws<ArgumentException>(() => new ServiceEnvironmentReadResult.Success(id, [], [variable], values));
         Assert.Throws<ArgumentException>(() => new ServiceEnvironmentReadResult.Success(id, [source, source], [variable], values));
         Assert.Throws<ArgumentException>(() => new ServiceEnvironmentReadResult.Success(id, [source], [variable, variable], values));
         Assert.Throws<ArgumentException>(() => new ServiceEnvironmentReadResult.Success(id,
             [new EnvironmentSourceMetadata(0, EnvironmentSourceKind.EnvironmentFile, true, true)], [variable], values));
-        Assert.Throws<ArgumentException>(() => new ServiceEnvironmentReadResult.Success(id, [null!], [], new EnvironmentValues([])));
+        Assert.Throws<ArgumentException>(() => new ServiceEnvironmentReadResult.Success(id, [null!], [], empty));
         Assert.Throws<ArgumentException>(() => new ServiceEnvironmentReadResult.Success(id, [source], [null!], values));
     }
 
@@ -68,17 +69,17 @@ public sealed class ServiceEnvironmentReadResultTests
     {
         var secret = Guid.NewGuid().ToString("N");
         var input = new Dictionary<string, string> { ["SYNTHETIC"] = secret };
-        var values = new EnvironmentValues(input);
+        using var values = new EnvironmentValues(input);
         var sources = new List<EnvironmentSourceMetadata> { new(0, EnvironmentSourceKind.ManagerEnvironment) };
         var variables = new List<EnvironmentVariableMetadata> { new("SYNTHETIC", 0) };
-        var result = new ServiceEnvironmentReadResult.Success(new SystemServiceId("example.service"), sources, variables, values);
+        using var result = new ServiceEnvironmentReadResult.Success(new SystemServiceId("example.service"), sources, variables, values);
         input.Clear();
         sources.Clear();
         variables.Clear();
         Assert.Single(result.Sources);
         Assert.Single(result.Variables);
         // Keep secret operands out of xUnit's failure diagnostics.
-        var matches = string.Equals(secret, result.Values.Reveal("SYNTHETIC"), StringComparison.Ordinal);
+        var matches = result.Values.Reveal("SYNTHETIC").SequenceEqual(secret.AsSpan());
         Assert.True(matches);
         Assert.False(JsonSerializer.Serialize(result).Contains(secret, StringComparison.Ordinal));
         Assert.False(JsonSerializer.Serialize(values).Contains(secret, StringComparison.Ordinal));
