@@ -75,6 +75,10 @@ The reviewer MUST NOT inherit conversation turns or context from the
 implementation agent. When the orchestration mechanism supports explicit
 context forking, select no inherited turns, for example `fork_turns: "none"`.
 
+Launch every code-review agent with explicit `model: "gpt-5.6-sol"` and
+`reasoning_effort: "medium"`. Apply these settings to every review iteration;
+do not inherit the implementation agent's model or reasoning effort.
+
 Provide only:
 
 - the original task requirements and acceptance criteria,

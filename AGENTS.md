@@ -180,6 +180,7 @@ Critical systemd behavior must be tested against a real Linux/systemd environmen
 
 - After every change covered by `.agents/workflows/post-change-review.md`, run that workflow before considering the task complete.
 - Every review iteration must use a newly created `serval-code-reviewer` agent with a fresh context and no inherited implementation conversation.
+- Every code-review agent must be launched with model `gpt-5.6-sol` and `reasoning_effort: "medium"`; set both explicitly rather than inheriting the implementation agent's settings.
 - A task subject to review is complete only when the latest independent reviewer returns `VERDICT: APPROVED` and every applicable mandatory quality gate has passed.
 - Review findings and every relevant quality-gate result must be reported according to the workflow.
 
