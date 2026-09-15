@@ -7,7 +7,7 @@ public abstract class ServiceEnvironmentReadResult
 {
     private ServiceEnvironmentReadResult() { }
 
-    public sealed class Success : ServiceEnvironmentReadResult
+    public sealed class Success : ServiceEnvironmentReadResult, IDisposable
     {
         public Success(SystemServiceId canonicalServiceId,
             IEnumerable<EnvironmentSourceMetadata> sources,
@@ -38,6 +38,7 @@ public abstract class ServiceEnvironmentReadResult
             CanonicalServiceId = canonicalServiceId;
             Sources = Array.AsReadOnly(sourceArray);
             Variables = Array.AsReadOnly(variableArray);
+            values.Freeze();
             Values = values;
         }
 
@@ -48,6 +49,8 @@ public abstract class ServiceEnvironmentReadResult
 
         [System.Text.Json.Serialization.JsonIgnore]
         public EnvironmentValues Values { get; }
+
+        public void Dispose() => Values.Dispose();
     }
 
     public sealed class Failure : ServiceEnvironmentReadResult

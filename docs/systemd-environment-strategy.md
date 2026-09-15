@@ -22,13 +22,50 @@ successes. Any failed required step discards the whole candidate snapshot.
 
 `Success` contains canonical identity, the fixed model scope, immutable source
 and variable metadata, and a separate `EnvironmentValues` component. Values have
-no public enumerable/property representation; access requires `Reveal(name)`.
+no public enumerable/property representation; access requires internal `Reveal(name)`.
 Default JSON serialization excludes the success's values component; its own
-serialization exposes no values. `ToString` is redacted. This is accidental-leak
+serialization writes the constant JSON string `"[REDACTED]"`. `ToString` is redacted. This is accidental-leak
 protection, not authorization or a secure-memory guarantee: managed strings may
 remain in memory. Do not log objects via private-field reflection or call Reveal
 from diagnostic code. No environment value may enter logs, audit, SQLite,
 telemetry, exception messages, snapshots or test failure output.
+
+### M2.2 value lifetime
+
+`EnvironmentVariableMetadata` remains the separate name/provenance projection;
+it contains neither a value nor its hash or length. `EnvironmentValues` owns
+private character arrays and has no public construction, mutation or reveal API.
+Only the application assembly and its friend `Serval.Systemd` may compute/read
+values (the test assembly is a friend for verification). This is a code boundary,
+not a sandbox against reflection. A future authorized reveal path needs an explicit
+design change; no Web or Agent access is granted here.
+
+The internal constructor and `Set` copy input into owned arrays. The caller still
+owns and must release its input buffers; input strings, D-Bus strings, or copies
+made by consumers cannot be erased by this type. `Reveal` borrows a read-only span,
+valid only until replacement/disposal. Do not retain it or share the owner across
+threads. `Set` clears the previous winning buffer immediately, retaining no history.
+Metadata must be updated separately by the future composer before publication.
+
+The composer owns the candidate in a `using`/`finally` scope, including all error,
+timeout and cancellation exits. Construction clears partial buffers on failure
+and replaces input-enumerator exceptions with fixed diagnostics without an inner
+exception; cancellation remains cancellation. Successful `Success` construction
+freezes mutation and transfers disposal responsibility to the result consumer.
+Failed result construction leaves ownership with the composer. Consumers dispose
+the success (which disposes its values) after use. Disposal is idempotent, clears
+all owned arrays and drops references; subsequent reads/writes fail with fixed
+diagnostics. There is no finalizer guarantee: omitting disposal is a caller bug.
+
+System.Text.Json, the repository serializer, always writes a constant mask for
+the values object directly or nested, regardless of empty/present/disposed state;
+the success property remains ignored. Deserialization is rejected. Custom
+converters or private-field inspection are outside this accidental-leak boundary.
+Debugger display and `ToString` use the same constant; the buffer field is hidden
+from normal debugger expansion. An empty value is still a present metadata entry
+and a successful zero-length borrowed span; an absent name throws a fixed error.
+M2.2 adds no systemd interaction or privileged operation, so its buffer and
+serialization behavior is verified in managed unit tests, without new systemd fixtures.
 
 Sources use request-local integer IDs: 0 is the aggregate manager Environment
 source; file declarations use 1..N in manager order, including repeated paths.
