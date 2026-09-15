@@ -27,7 +27,11 @@ lookalike_name="serval-agent-helper@$instance_id.service"
 lookalike="$root/$lookalike_name"
 failed="$root/$prefix-failed.service"
 masked="$root/$prefix-masked.service"
+environment_name="$prefix-environment@sample.service"
+environment_unit="$root/$environment_name"
+environment_dropin="$environment_unit.d"
 fixture_names=(
+    "$environment_name"
     "$prefix-inactive.service"
     "$prefix-alias.service"
     "$prefix-worker@.service"
@@ -61,16 +65,35 @@ for name in "${fixture_names[@]}"; do
         exit 1
     fi
 done
-for file in "$inactive" "$alias" "$template" "$instance" "$instance_alias" "$template_alias" "$privileged" "$privileged_alias" "$lookalike" "$failed" "$masked"; do
+for file in "$inactive" "$alias" "$template" "$instance" "$instance_alias" "$template_alias" "$privileged" "$privileged_alias" "$lookalike" "$failed" "$masked" "$environment_unit" "$environment_dropin"; do
     test ! -e "$file" && test ! -L "$file"
 done
 cleanup() {
     systemctl stop "$prefix-transient.service" "$prefix-worker@loaded.service" || true
     systemctl reset-failed "$prefix-failed.service" || true
     rm -f -- "$inactive" "$alias" "$template" "$instance" "$instance_alias" "$template_alias" "$privileged" "$privileged_alias" "$lookalike" "$failed" "$masked"
+    rm -f -- "$environment_unit" "$environment_dropin/10-environment.conf" "$environment_dropin/expected"
+    rmdir -- "$environment_dropin" || true
     systemctl daemon-reload
 }
 trap cleanup EXIT
+# Private synthetic values; never print them or pass them as process arguments.
+mkdir -m 700 -- "$environment_dropin"
+(
+    umask 077
+    marker="$(cat /proc/sys/kernel/random/uuid)"
+    printf '%s' "$marker" > "$environment_dropin/expected"
+    printf '[Service]\nType=oneshot\nExecStart=/usr/bin/true\nEnvironment=REMOVED=%s\n' "$marker" > "$environment_unit"
+    {
+        printf '[Service]\nEnvironment=\nEnvironment="VALUE=%s first"\n' "$marker"
+        printf 'Environment="VALUE=%s final" "EMPTY="\n' "$marker"
+        printf 'Environment="ESCAPED=%s\\n\\t\\\\"\n' "$marker"
+        printf 'Environment="LITERAL=%s $HOME $(id) `id`"\n' "$marker"
+        printf 'Environment="SPECIFIER=%%n/%%i/%%%%"\n'
+        # Invalid assignment contains no value, even if systemd journals its diagnostic.
+        printf 'Environment=9INVALID=\n'
+    } > "$environment_dropin/10-environment.conf"
+)
 cat > "$inactive" <<'UNIT'
 [Unit]
 Description=Serval enumeration disposable inactive fixture

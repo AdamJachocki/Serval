@@ -82,6 +82,27 @@ It validates structure; only the adapter can establish that every source was rea
 
 ## Manager reference and snapshot algorithm
 
+### M2.3 loaded-entry decoder
+
+`LoadedEnvironmentDecoder` is an internal, I/O-free decoder of the already loaded
+Environment array. It splits at the first `=`, validates ASCII names, strict UTF-8
+representability and absence of NUL, and preserves all remaining characters.
+There is no unit parser, second unquoting, specifier expansion or reset replay.
+Duplicate names replace earlier values; accounting includes every original entry.
+The complete input is validated before allocating owned value buffers. Input
+strings remain caller-owned and must not be mutated/replaced during decoding.
+The disposable candidate owns M2.2 buffers until composition finishes; errors and
+cancellation dispose retained buffers. Metadata identifies aggregate source 0,
+without unit line numbers or override/reset history. Byte and assignment counts
+are internal accounting only, not published metadata. This component introduces
+no root capability, service access, filesystem access or user authorization.
+
+The existing real-systemd harness generates private synthetic declarations and
+compares their loaded Environment property with the decoder, including a drop-in
+reset, quoting, specifiers and a value-free invalid assignment. Its test-only
+busctl oracle is not part of the product transport. Property acquisition, active
+UnsetEnvironment/PassEnvironment rejection and file-list validation belong to M2.5.
+
 Reuse the accepted [discovery identity strategy](systemd-discovery-strategy.md)
 and M1 identity/protection code, not a second filesystem-wide discovery engine.
 Only connect to the system manager. No `systemctl cat`, shell, arbitrary command,
