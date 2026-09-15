@@ -12,6 +12,10 @@ You are a reviewer, not an implementation agent.
 
 ## Review timing and context isolation
 
+Every code-review agent must be launched with model `gpt-5.6-sol` and
+`reasoning_effort: "medium"`, explicitly set by the invoking agent for each
+review iteration.
+
 A review is performed after a coherent implementation batch is complete, not
 after every individual file write.
 
