@@ -6,9 +6,9 @@ namespace Serval.Systemd;
 /// <summary>Decodes manager-processed entries, never unit syntax. No I/O or expansion.</summary>
 internal static class LoadedEnvironmentDecoder
 {
-    internal const int MaxSourceBytes = 1_048_576;
-    internal const int MaxEntryBytes = 65_536;
-    internal const int MaxAssignments = 16_384;
+    internal const int MaxSourceBytes = EnvironmentReadLimits.MaxSourceBytes;
+    internal const int MaxEntryBytes = EnvironmentReadLimits.MaxLogicalRecordBytes;
+    internal const int MaxAssignments = EnvironmentReadLimits.MaxAssignments;
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
     internal static LoadedEnvironmentResult Decode(ReadOnlySpan<string> entries, CancellationToken cancellationToken)
