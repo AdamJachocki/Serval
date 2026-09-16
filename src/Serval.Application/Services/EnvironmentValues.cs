@@ -16,12 +16,21 @@ public sealed class EnvironmentValues : IDisposable
 {
     [DebuggerBrowsable(DebuggerBrowsableState.Never)]
     private readonly Dictionary<string, char[]> values = new(StringComparer.Ordinal);
+    [DebuggerBrowsable(DebuggerBrowsableState.Never)]
+    private readonly Action<char[]>? clearedBufferObserver;
     private bool disposed;
     private bool frozen;
 
     internal EnvironmentValues(IEnumerable<KeyValuePair<string, string>> values)
+        : this(values, null)
+    {
+    }
+
+    /// <summary>Test instrumentation observes buffers only after they have been cleared.</summary>
+    internal EnvironmentValues(IEnumerable<KeyValuePair<string, string>> values, Action<char[]>? clearedBufferObserver)
     {
         ArgumentNullException.ThrowIfNull(values);
+        this.clearedBufferObserver = clearedBufferObserver;
         try
         {
             foreach (var pair in values)
@@ -56,7 +65,7 @@ public sealed class EnvironmentValues : IDisposable
             values.TryGetValue(name, out var previous);
             values[name] = buffer;
             if (previous is not null)
-                Clear(previous);
+                ClearOwned(previous);
         }
         catch (Exception)
         {
@@ -90,12 +99,18 @@ public sealed class EnvironmentValues : IDisposable
         if (disposed)
             return;
         foreach (var buffer in values.Values)
-            Clear(buffer);
+            ClearOwned(buffer);
         values.Clear();
         disposed = true;
     }
 
     private static void Clear(char[] buffer) => CryptographicOperations.ZeroMemory(MemoryMarshal.AsBytes(buffer.AsSpan()));
+
+    private void ClearOwned(char[] buffer)
+    {
+        Clear(buffer);
+        clearedBufferObserver?.Invoke(buffer);
+    }
 
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(disposed, typeof(EnvironmentValues));
 

@@ -30,8 +30,25 @@ masked="$root/$prefix-masked.service"
 environment_name="$prefix-environment@sample.service"
 environment_unit="$root/$environment_name"
 environment_dropin="$environment_unit.d"
+environment_file_name="$prefix-environment-file.service"
+environment_file_unit="$root/$environment_file_name"
+environment_file_source="$root/$prefix-environment-file.env"
+environment_invalid_name="$prefix-environment-invalid.service"
+environment_invalid_unit="$root/$environment_invalid_name"
+environment_invalid_source="$root/$prefix-environment-invalid.env"
+environment_divergence_template_name="$prefix-environment-divergence@.service"
+environment_divergence_template="$root/$environment_divergence_template_name"
+environment_divergence_lf="$root/$prefix-environment-divergence-lf.env"
+environment_divergence_cr="$root/$prefix-environment-divergence-cr.env"
+environment_divergence_crlf="$root/$prefix-environment-divergence-crlf.env"
 fixture_names=(
     "$environment_name"
+    "$environment_file_name"
+    "$environment_invalid_name"
+    "$environment_divergence_template_name"
+    "$prefix-environment-divergence@lf.service"
+    "$prefix-environment-divergence@cr.service"
+    "$prefix-environment-divergence@crlf.service"
     "$prefix-inactive.service"
     "$prefix-alias.service"
     "$prefix-worker@.service"
@@ -65,14 +82,20 @@ for name in "${fixture_names[@]}"; do
         exit 1
     fi
 done
-for file in "$inactive" "$alias" "$template" "$instance" "$instance_alias" "$template_alias" "$privileged" "$privileged_alias" "$lookalike" "$failed" "$masked" "$environment_unit" "$environment_dropin"; do
+for file in "$inactive" "$alias" "$template" "$instance" "$instance_alias" "$template_alias" "$privileged" "$privileged_alias" "$lookalike" "$failed" "$masked" "$environment_unit" "$environment_dropin" "$environment_file_unit" "$environment_file_source" "$environment_invalid_unit" "$environment_invalid_source" "$environment_divergence_template" "$environment_divergence_lf" "$environment_divergence_cr" "$environment_divergence_crlf"; do
     test ! -e "$file" && test ! -L "$file"
 done
 cleanup() {
+    systemctl stop "$environment_file_name" "$environment_invalid_name" \
+        "$prefix-environment-divergence@lf.service" "$prefix-environment-divergence@cr.service" \
+        "$prefix-environment-divergence@crlf.service" || true
     systemctl stop "$prefix-transient.service" "$prefix-worker@loaded.service" || true
     systemctl reset-failed "$prefix-failed.service" || true
     rm -f -- "$inactive" "$alias" "$template" "$instance" "$instance_alias" "$template_alias" "$privileged" "$privileged_alias" "$lookalike" "$failed" "$masked"
     rm -f -- "$environment_unit" "$environment_dropin/10-environment.conf" "$environment_dropin/expected"
+    rm -f -- "$environment_file_unit" "$environment_file_source" "$environment_invalid_unit" \
+        "$environment_invalid_source" "$environment_divergence_template" "$environment_divergence_lf" \
+        "$environment_divergence_cr" "$environment_divergence_crlf"
     rmdir -- "$environment_dropin" || true
     systemctl daemon-reload
 }
@@ -94,6 +117,52 @@ mkdir -m 700 -- "$environment_dropin"
         printf 'Environment=9INVALID=\n'
     } > "$environment_dropin/10-environment.conf"
 )
+# Private EnvironmentFile= parser oracle. Values are read only from /proc by the test and are never printed.
+(
+    umask 077
+    marker="$(cat /proc/sys/kernel/random/uuid)"
+    {
+        printf '# ordinary LF comment\n'
+        printf '; ordinary CR comment\r'
+        printf '# ordinary CRLF comment\r\n'
+        printf 'ignored non-assignment line\n'
+        printf 'EMPTY=\n'
+        printf 'UNQUOTED=  %s unquoted\\ value  \n' "$marker"
+        printf "SINGLE='%s single\nline'\n" "$marker"
+        printf 'DOUBLE="%s \\$HOME \\` \\\\ \\" \\q \\\ncontinued"\n' "$marker"
+        printf 'LITERAL=%s $HOME ${HOME} $(id) `id` %%n %%%% ==\n' "$marker"
+        printf 'UNICODE=%s-zażółć-😀\n' "$marker"
+        printf 'DUPLICATE=%s-first\nDUPLICATE=%s-final\n' "$marker" "$marker"
+    } > "$environment_file_source"
+    printf 'FORBIDDEN=\uFDD0\n' > "$environment_invalid_source"
+    printf '# divergent \\\nAFTER=%s\n' "$marker" > "$environment_divergence_lf"
+    printf '# divergent \\\rAFTER=%s\r' "$marker" > "$environment_divergence_cr"
+    printf '# stable \\\r\nAFTER=%s\r\n' "$marker" > "$environment_divergence_crlf"
+)
+cat > "$environment_file_unit" <<UNIT
+[Unit]
+Description=Serval environment-file parser fixture
+[Service]
+Type=simple
+EnvironmentFile=$environment_file_source
+ExecStart=/usr/bin/sleep 300
+UNIT
+cat > "$environment_invalid_unit" <<UNIT
+[Unit]
+Description=Serval invalid environment-file parser fixture
+[Service]
+Type=simple
+EnvironmentFile=$environment_invalid_source
+ExecStart=/usr/bin/sleep 300
+UNIT
+cat > "$environment_divergence_template" <<UNIT
+[Unit]
+Description=Serval environment-file divergence fixture
+[Service]
+Type=simple
+EnvironmentFile=$root/$prefix-environment-divergence-%i.env
+ExecStart=/usr/bin/sleep 300
+UNIT
 cat > "$inactive" <<'UNIT'
 [Unit]
 Description=Serval enumeration disposable inactive fixture
