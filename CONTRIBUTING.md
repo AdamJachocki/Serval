@@ -21,15 +21,30 @@ Restore and validate the repository with:
 dotnet restore --locked-mode
 dotnet format Serval.slnx --verify-no-changes --no-restore
 dotnet build Serval.slnx --configuration Release --no-restore
-dotnet test Serval.slnx --configuration Release --no-build --no-restore
 ```
 
 When intentionally changing a NuGet dependency, run `dotnet restore` without `--locked-mode`, review every resulting lock-file change, and commit it with the project changes.
 
+## Branch workflow
+
+Before modifying repository files for an issue or feature:
+
+1. Fetch the latest remote state:
+
+```bash
+git fetch origin
+```
+2. Create a dedicated branch from the latest origin/develop:
+```bash
+git switch -c <branch-name> origin/develop
+```
+Do not start implementation directly on develop or main.
+Do not discard or overwrite unrelated local changes in order to switch branches.
+
 ## Change expectations
 
 - Keep pull requests focused and explain the security impact.
-- Preserve the dependency direction documented in [`docs/architecture.md`](docs/architecture.md).
+- Preserve the dependency direction documented in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 - Do not add speculative abstractions, packages, or project references.
 - Treat all environment-variable values and credentials as secrets. Never place them in source, test output, snapshots, logs, exceptions, telemetry, SQLite, issues, or pull requests.
 - Add tests that demonstrate meaningful behavior. Security-sensitive and privileged changes require permitted and denied paths plus applicable malicious-input cases.
