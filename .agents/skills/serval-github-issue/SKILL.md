@@ -1,6 +1,8 @@
 ---
 name: serval-github-issue
 description: Implement a numbered GitHub issue in the Serval repository, including safe issue retrieval, creation of a dedicated features branch, scoped implementation, verification, and mandatory independent review. Use for requests such as "Wykonaj zadanie 6", "Wykonaj issue #6", or "Implement issue 6".
+
+Before creating or modifying repository files for an issue, follow the branch workflow defined in `CONTRIBUTING.md`.
 ---
 
 # Serval GitHub issue implementation

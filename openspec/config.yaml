@@ -1,32 +1,74 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+context: |
+    Serval is a production-grade, security-first, open-source Linux administration application. 
+    Tech stack: .NET10, ASP.NET Core Razor Pages, SQLite for non-secret application state, Linux PAM for authentication, systemd system services, modular monolith
+    
+    Runtime architecture:
+    - Serval.Web is network-facing and MUST NOT run as root.
+    - Serval.Agent is the minimal privileged local component.
+    - Communication between Web and Agent is local-only.
+    - Privileged operations belong behind the Agent boundary.
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+    Core security invariants:
+    - Never move privileged system operations into Serval.Web.
+    - Never modify vendor-owned or user-owned systemd unit files directly.
+    - Treat all environment-variable values as secrets.
+    - Never persist secret values in SQLite, logs, audit logs, telemetry, exceptions, or test output.
+    - Never construct privileged shell commands from user-controlled input.
+    - Authorization must be enforced server-side for every protected operation.
+    - Protected-service policy takes precedence over normal permissions.
+    - Saving configuration and restarting a service are separate explicit operations.
 
-# Per-operation guidance (optional)
-# Add advisory guidance for how apply and archive work should be conducted.
-# This is separate from artifact rules above.
-# Example:
-#   operations:
-#     apply:
-#       guidance:
-#         - Keep test summaries concise
-#     archive:
-#       guidance:
-#         - Summarize the archive outcome before finishing
+    Canonical repository guidance:
+    - AGENTS.md defines agent workflow and mandatory repository instructions.
+    - ARCHITECTURE.md defines current architectural boundaries.
+    - SECURITY.md defines security policy.
+    - Relevant documents under docs/ contain accepted technical decisions.
+
+    Treat canonical documentation as authoritative.
+    Do not duplicate permanent project documentation in OpenSpec change artifacts.
+    Reference it instead and document only what the proposed change adds or modifies.
+
+rules:
+    proposal:
+        - State the problem and motivation clearly.
+        - Include explicit non-goals when they help constrain the scope.
+        - Identify affected existing capabilities and any new capabilities.
+        - Call out security-sensitive or privileged behavior when applicable.
+        - Avoid implementation details unless they are necessary to define the scope.
+    
+    specs:
+        - Specify externally observable or contractually significant behavior.
+        - Include relevant failure, denied, malformed, and unauthorized scenarios.
+        - Never use secret values as examples or fixtures.
+        
+    design:
+        - Identify affected Serval modules and runtime processes.
+        - Describe changes to trust boundaries, privileged operations, IPC, persistence, or systemd integration when applicable.
+        - Reference relevant canonical architecture or design documents instead of copying them.
+        - Explicitly identify any architectural decision that should be promoted to permanent project documentation.
+        - Do not silently weaken existing security invariants to simplify implementation.
+
+    tasks:
+        - Make every task independently verifiable.
+        - Include automated tests required by the specification.
+        - Include negative-path tests for security-sensitive behavior.
+        - Include documentation updates when the change alters architecture, security invariants, operational behavior, or other permanent project knowledge.
+        - Do not create tasks for work outside the accepted proposal and specification.
+
+operations:
+  apply:
+    - Follow the repository workflow defined in CONTRIBUTING.md.
+    guidance:
+      - Follow AGENTS.md and every applicable project skill and workflow.
+      - Treat the OpenSpec artifacts as the implementation contract; do not silently implement behavior outside them.
+      - If implementation reveals a material flaw or missing requirement in the plan, update the relevant OpenSpec artifacts before continuing.
+      - Complete all applicable repository quality gates and mandatory independent review before considering the change finished.
+
+  archive:
+    guidance:
+      - Archive only behavior that was actually implemented and verified.
+      - Ensure resulting main specs describe the shipped system rather than the original implementation intent.
+      - Do not archive a change with unresolved implementation or review findings.
+      - Do not run code review agents after archive step.
