@@ -8,6 +8,7 @@ internal enum SystemdDbusFailureKind
     MalformedReply,
     Timeout,
     UnsupportedVersion,
+    LimitExceeded,
 }
 
 internal sealed class SystemdDbusException : Exception
@@ -40,6 +41,8 @@ internal sealed class SystemdDbusException : Exception
                 "The systemd D-Bus service returned a malformed reply.",
             SystemdDbusFailureKind.Timeout =>
                 "The systemd D-Bus operation exceeded its deadline.",
+            SystemdDbusFailureKind.LimitExceeded =>
+                "The systemd D-Bus reply exceeded a fixed resource limit.",
             _ =>
                 "The systemd D-Bus operation failed.",
         };

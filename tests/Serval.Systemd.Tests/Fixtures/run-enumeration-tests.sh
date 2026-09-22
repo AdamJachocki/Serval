@@ -41,6 +41,22 @@ environment_divergence_template="$root/$environment_divergence_template_name"
 environment_divergence_lf="$root/$prefix-environment-divergence-lf.env"
 environment_divergence_cr="$root/$prefix-environment-divergence-cr.env"
 environment_divergence_crlf="$root/$prefix-environment-divergence-crlf.env"
+source_template_name="$prefix-source@.service"
+source_template="$root/$source_template_name"
+source_dropin="$source_template.d"
+source_name="$prefix-source@sample.service"
+source_alias_name="$prefix-source-alias@sample.service"
+source_alias="$root/$source_alias_name"
+source_one="$root/$prefix-source-sample-one.env"
+source_two="$root/$prefix-source-sample-two.env"
+source_missing="$root/$prefix-source-sample-optional-missing.env"
+source_required_name="$prefix-source-required-missing.service"
+source_required_unit="$root/$source_required_name"
+source_required_missing="$root/$prefix-source-required-missing.env"
+source_unsupported_name="$prefix-source-unsupported.service"
+source_unsupported_unit="$root/$source_unsupported_name"
+source_disappear_name="$prefix-source-disappear.service"
+source_disappear_unit="$root/$source_disappear_name"
 fixture_names=(
     "$environment_name"
     "$environment_file_name"
@@ -62,6 +78,12 @@ fixture_names=(
     "$lookalike_name"
     "$prefix-failed.service"
     "$prefix-masked.service"
+    "$source_template_name"
+    "$source_name"
+    "$source_alias_name"
+    "$source_required_name"
+    "$source_unsupported_name"
+    "$source_disappear_name"
 )
 is_listed() {
     local target="$1"
@@ -82,7 +104,7 @@ for name in "${fixture_names[@]}"; do
         exit 1
     fi
 done
-for file in "$inactive" "$alias" "$template" "$instance" "$instance_alias" "$template_alias" "$privileged" "$privileged_alias" "$lookalike" "$failed" "$masked" "$environment_unit" "$environment_dropin" "$environment_file_unit" "$environment_file_source" "$environment_invalid_unit" "$environment_invalid_source" "$environment_divergence_template" "$environment_divergence_lf" "$environment_divergence_cr" "$environment_divergence_crlf"; do
+for file in "$inactive" "$alias" "$template" "$instance" "$instance_alias" "$template_alias" "$privileged" "$privileged_alias" "$lookalike" "$failed" "$masked" "$environment_unit" "$environment_dropin" "$environment_file_unit" "$environment_file_source" "$environment_invalid_unit" "$environment_invalid_source" "$environment_divergence_template" "$environment_divergence_lf" "$environment_divergence_cr" "$environment_divergence_crlf" "$source_template" "$source_dropin" "$source_alias" "$source_one" "$source_two" "$source_missing" "$source_required_unit" "$source_required_missing" "$source_unsupported_unit" "$source_disappear_unit"; do
     test ! -e "$file" && test ! -L "$file"
 done
 cleanup() {
@@ -96,7 +118,12 @@ cleanup() {
     rm -f -- "$environment_file_unit" "$environment_file_source" "$environment_invalid_unit" \
         "$environment_invalid_source" "$environment_divergence_template" "$environment_divergence_lf" \
         "$environment_divergence_cr" "$environment_divergence_crlf"
+    rm -f -- "$source_template" "$source_dropin/10-manager.conf" \
+        "$source_dropin/20-sources.conf" "$source_dropin/30-repeat.conf" "$source_alias" \
+        "$source_one" "$source_two" "$source_required_unit" "$source_unsupported_unit" \
+        "$source_disappear_unit"
     rmdir -- "$environment_dropin" || true
+    rmdir -- "$source_dropin" || true
     systemctl daemon-reload
 }
 trap cleanup EXIT
@@ -117,6 +144,64 @@ mkdir -m 700 -- "$environment_dropin"
         printf 'Environment=9INVALID=\n'
     } > "$environment_dropin/10-environment.conf"
 )
+# Ordered source-reader fixture. Private values are generated and never emitted.
+mkdir -m 700 -- "$source_dropin"
+(
+    umask 077
+    marker="$(cat /proc/sys/kernel/random/uuid)"
+    printf 'ONE=%s\n' "$marker" > "$source_one"
+    printf 'TWO=%s\n' "$marker" > "$source_two"
+    cat > "$source_template" <<UNIT
+[Unit]
+Description=Serval ordered source reader fixture
+[Service]
+Type=oneshot
+Environment=REMOVED=$marker
+EnvironmentFile=$source_two
+ExecStart=/usr/bin/true
+UNIT
+    cat > "$source_dropin/10-manager.conf" <<UNIT
+[Service]
+Environment=
+Environment=ACTIVE=$marker-%%i
+UNIT
+    cat > "$source_dropin/20-sources.conf" <<UNIT
+[Service]
+EnvironmentFile=
+EnvironmentFile=$source_one
+EnvironmentFile=-$source_missing
+EnvironmentFile=$source_two
+UNIT
+    cat > "$source_dropin/30-repeat.conf" <<UNIT
+[Service]
+EnvironmentFile=$source_one
+UNIT
+)
+ln -s "$source_name" "$source_alias"
+cat > "$source_required_unit" <<UNIT
+[Unit]
+Description=Serval required missing source fixture
+[Service]
+Type=oneshot
+EnvironmentFile=$source_required_missing
+ExecStart=/usr/bin/true
+UNIT
+cat > "$source_unsupported_unit" <<UNIT
+[Unit]
+Description=Serval unsupported source fixture
+[Service]
+Type=oneshot
+UnsetEnvironment=ACTIVE
+EnvironmentFile=/dev/null
+ExecStart=/usr/bin/true
+UNIT
+cat > "$source_disappear_unit" <<'UNIT'
+[Unit]
+Description=Serval disappearing source fixture
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/true
+UNIT
 # Private EnvironmentFile= parser oracle. Values are read only from /proc by the test and are never printed.
 (
     umask 077

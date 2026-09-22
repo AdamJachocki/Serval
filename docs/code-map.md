@@ -151,9 +151,16 @@ EnvironmentFileParser.cs
 EnvironmentFileParseResult.cs
 LoadedEnvironmentDecoder.cs
 EnvironmentReadLimits.cs
+SystemdEnvironmentSourceReader.cs
+SystemdEnvironmentSourceReadResult.cs
+SystemdSourcePath.cs
+LinuxSystemdSourceFileAccess.cs
 ```
 
 Start here for parsing environment files or decoding environment information returned by systemd.
+`SystemdEnvironmentSourceReader` and `LinuxSystemdSourceFileAccess` form the
+internal, disposable M2.5 source-acquisition and safe Linux file boundary; they do
+not implement the application-facing environment reader or value composition.
 
 #### Protected services
 

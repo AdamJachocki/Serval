@@ -34,6 +34,19 @@ public sealed class SystemdDbusTransportTests
                 "loaded",
                 "active",
                 "running"),
+            EnvironmentProperties = new ProtocolEnvironmentProperties(
+                "alpha.service",
+                ["alpha.service", "alpha-alias.service"],
+                "loaded",
+                "/etc/systemd/system/alpha.service",
+                ["/etc/systemd/system/alpha.service.d/10-env.conf"],
+                false,
+                false,
+                "enabled",
+                ["A=value"],
+                [new ProtocolEnvironmentFile("/etc/alpha.env", true)],
+                [],
+                []),
         };
         await using var transport = new SystemdDbusTransport(protocol, TimeSpan.FromSeconds(5));
 
@@ -47,6 +60,9 @@ public sealed class SystemdDbusTransportTests
         var properties = await transport.ReadUnitPropertiesAsync(
             listedUnits[0].Unit,
             TestContext.Current.CancellationToken);
+        var environment = await transport.ReadEnvironmentPropertiesAsync(
+            listedUnits[0].Unit,
+            TestContext.Current.CancellationToken);
 
         Assert.Equal("systemd 255", version);
         var unitFile = Assert.Single(unitFiles);
@@ -56,10 +72,37 @@ public sealed class SystemdDbusTransportTests
         Assert.Equal("alpha.service", Assert.Single(namedUnits).Name);
         Assert.Equal("alpha.service", properties.Id);
         Assert.Equal(["alpha.service", "alpha-alias.service"], properties.Names);
+        Assert.Equal("alpha.service", environment.Id);
+        Assert.Equal(["A=value"], environment.Environment);
+        Assert.True(Assert.Single(environment.EnvironmentFiles).IgnoreErrors);
         Assert.Empty(protocol.ObservedStates);
         Assert.Equal(["*.service"], protocol.ObservedPatterns);
         Assert.Equal(["alpha.service"], protocol.ObservedNames);
         Assert.Equal(ListedUnit.ObjectPath, protocol.ObservedObjectPath);
+    }
+
+    [Fact]
+    public async Task EnvironmentPropertiesAcceptAliasCountBeyondSourceCount()
+    {
+        var names = Enumerable.Range(0, EnvironmentReadLimits.MaxSources + 1)
+            .Select(index => $"alias-{index}.service")
+            .Prepend("alpha.service")
+            .ToArray();
+        var protocol = new FakeSystemdDbusProtocol
+        {
+            ListedUnits = [ListedUnit],
+            EnvironmentProperties = new ProtocolEnvironmentProperties(
+                "alpha.service", names, "loaded", "/etc/alpha.service", [], false,
+                false, "enabled", [], [], [], []),
+        };
+        await using var transport = new SystemdDbusTransport(protocol, TimeSpan.FromSeconds(5));
+        var unit = Assert.Single(await transport.ListServiceUnitsAsync(TestContext.Current.CancellationToken));
+
+        var properties = await transport.ReadEnvironmentPropertiesAsync(
+            unit.Unit,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(names.Length, properties.Names.Count);
     }
 
     [Fact]
@@ -137,6 +180,22 @@ public sealed class SystemdDbusTransportTests
         Assert.Equal(SystemdDbusFailureKind.IncompatibleReply, exception.FailureKind);
     }
 
+    [Fact]
+    public async Task ProtocolReplyLimitIsPreservedAsTypedFailure()
+    {
+        var protocol = new FakeSystemdDbusProtocol
+        {
+            ManagerVersionFailure = new SystemdDbusProtocolException(
+                SystemdDbusProtocolFailureKind.LimitExceeded),
+        };
+        await using var transport = new SystemdDbusTransport(protocol, TimeSpan.FromSeconds(5));
+
+        var exception = await Assert.ThrowsAsync<SystemdDbusException>(
+            () => transport.GetManagerVersionAsync(TestContext.Current.CancellationToken));
+
+        Assert.Equal(SystemdDbusFailureKind.LimitExceeded, exception.FailureKind);
+    }
+
     [Theory]
     [InlineData("unit-name")]
     [InlineData("object-root")]
@@ -189,6 +248,27 @@ public sealed class SystemdDbusTransportTests
                 TestContext.Current.CancellationToken));
 
         Assert.Equal(SystemdDbusFailureKind.MalformedReply, exception.FailureKind);
+    }
+
+    [Fact]
+    public async Task OversizedEnvironmentReplyIsRejectedWithoutPayloadDiagnostics()
+    {
+        var protocol = new FakeSystemdDbusProtocol
+        {
+            ListedUnits = [ListedUnit],
+            EnvironmentProperties = new ProtocolEnvironmentProperties(
+                "alpha.service", ["alpha.service"], "loaded", "/etc/a.service", [], false,
+                false, "enabled", Enumerable.Repeat("A=secret", EnvironmentReadLimits.MaxAssignments + 2).ToArray(),
+                [], [], []),
+        };
+        await using var transport = new SystemdDbusTransport(protocol, TimeSpan.FromSeconds(5));
+        var unit = Assert.Single(await transport.ListServiceUnitsAsync(TestContext.Current.CancellationToken));
+
+        var exception = await Assert.ThrowsAsync<SystemdDbusException>(() =>
+            transport.ReadEnvironmentPropertiesAsync(unit.Unit, TestContext.Current.CancellationToken));
+
+        Assert.Equal(SystemdDbusFailureKind.MalformedReply, exception.FailureKind);
+        Assert.DoesNotContain("secret", exception.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -296,6 +376,10 @@ public sealed class SystemdDbusTransportTests
             "active",
             "running");
 
+        public ProtocolEnvironmentProperties EnvironmentProperties { get; init; } = new(
+            "alpha.service", ["alpha.service"], "loaded", "/etc/systemd/system/alpha.service",
+            [], false, false, "enabled", [], [], [], []);
+
         public string[] ObservedStates { get; private set; } = [];
 
         public string[] ObservedPatterns { get; private set; } = [];
@@ -360,6 +444,14 @@ public sealed class SystemdDbusTransportTests
         {
             ObservedObjectPath = objectPath;
             return Task.FromResult(UnitProperties);
+        }
+
+        public Task<ProtocolEnvironmentProperties> ReadEnvironmentPropertiesAsync(
+            string objectPath,
+            CancellationToken cancellationToken)
+        {
+            ObservedObjectPath = objectPath;
+            return Task.FromResult(EnvironmentProperties);
         }
 
         public ValueTask DisposeAsync()

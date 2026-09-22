@@ -192,6 +192,9 @@ public sealed class SystemdServiceInspectorTests
     [InlineData("template-listing")]
     [InlineData("null")]
     [InlineData("empty-state")]
+    [InlineData("whitespace-load-state")]
+    [InlineData("whitespace-active-state")]
+    [InlineData("whitespace-sub-state")]
     [InlineData("long-state")]
     [InlineData("long-description")]
     public async Task RejectsMalformedOrUnrelatedReplies(string corruption)
@@ -208,6 +211,9 @@ public sealed class SystemdServiceInspectorTests
             "template-alias" => Properties() with { Names = ["a.service", "worker@.service"] },
             "null" => null!,
             "empty-state" => Properties() with { ActiveState = "" },
+            "whitespace-load-state" => Properties() with { LoadState = " " },
+            "whitespace-active-state" => Properties() with { ActiveState = " " },
+            "whitespace-sub-state" => Properties() with { SubState = " " },
             "long-state" => Properties() with { LoadState = new string('x', 129) },
             "long-description" => Properties() with { Description = new string('x', 16_385) },
             _ => Properties(),
@@ -392,6 +398,10 @@ public sealed class SystemdServiceInspectorTests
             Reads++;
             return Read?.Invoke(cancellationToken) ?? Task.FromResult(Properties);
         }
+        public Task<ProtocolEnvironmentProperties> ReadEnvironmentPropertiesAsync(
+            string objectPath,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("Inspection must not read environment properties.");
         public ValueTask DisposeAsync() { Disposed = true; return ValueTask.CompletedTask; }
     }
 

@@ -108,7 +108,9 @@ and M1 identity/protection code, not a second filesystem-wide discovery engine.
 Only connect to the system manager. No `systemctl cat`, shell, arbitrary command,
 generic D-Bus member supplied by a caller, or unit-text merge fallback is allowed.
 
-1. Start one monotonic 5-second deadline, linked with caller cancellation. Require
+1. Start one monotonic 5-second managed-operation deadline, linked with caller
+   cancellation. Pass its token to asynchronous operations and check it directly
+   before and after synchronous Linux filesystem calls. Require
    the M1 systemd baseline (manager Version, minimum 249). Validate
    the concrete system service identifier, resolve its canonical Id and Names,
    and apply protected/Serval privileged-family checks in both alias directions,
@@ -121,25 +123,34 @@ generic D-Bus member supplied by a caller, or unit-text merge fallback is allowe
    The boolean in each EnvironmentFiles tuple is optional/ignore-errors state.
    Serval deliberately ignores only initial ENOENT; other optional-source errors
    fail closed, even if systemd would ignore them.
-   Do not request broad GetAll replies carrying unrelated secrets.
+   Do not request broad GetAll replies carrying unrelated secrets. Enforce each
+   fixed collection count and UTF-8 byte bound while decoding the D-Bus body,
+   before constructing the next managed string or array element.
 3. Reject unsupported cases below before opening files. `NeedDaemonReload=true`
    is `InconsistentSnapshot`, never permission to reload. A missing or wrongly
    typed required property is `UnsupportedConfiguration/UnsupportedProperty`;
-   never assume a missing property is empty. Validate all returned IDs and paths.
+   disappearance after identity resolution is `InconsistentSnapshot`; never
+   assume a missing property is empty. Validate all returned IDs and paths.
 4. Capture identity and all listed properties, plus device/inode/size/mtime/ctime
    for the declared fragment and drop-ins without reading their contents. These
    bounded paths are used only for consistency, never as a second source of
-   Environment assignments. Unavailable configuration metadata fails closed.
+   Environment assignments. Require `statx` to report every identity field that
+   Serval consumes; a successful syscall with a partial mask fails closed.
+   Unavailable configuration metadata fails closed.
 5. Decode the loaded Environment array (already processed by the manager), then
    read each declared file through a bounded safe file reader. Capture descriptor
    metadata before/after each read; retain handles until final validation. Apply
    the precedence and parser rules below into a private candidate result.
 6. Re-read the exact properties, configuration metadata, file descriptor metadata
    and path-to-inode bindings (including absence for optional missing files).
-   Any difference or dirty manager state yields `InconsistentSnapshot`. No retry
-   or implicit reload. A transport failure remains a transport failure.
+   Any difference or dirty manager state yields `InconsistentSnapshot`. A
+   required property disappearing on this final read is also inconsistent.
+   No retry or implicit reload. A transport failure remains a transport failure.
 7. Publish one success only after validation and a final cancellation/deadline
-   check. Drop candidate values on all other exits.
+check. Drop candidate values on all other exits.
+Before returning any controlled failure from an in-progress acquisition, recheck
+caller cancellation and the managed deadline. An ordinary dependency error or
+failed consistency probe that arrives after cancellation cannot mask it.
 
 This is a bounded optimistic observation, not an atomic transaction across PID 1
 and the filesystem. Concurrent changes that revert between observations cannot
@@ -213,7 +224,14 @@ Missing/unreadable paths after a successful initial observation imply
 
 Limits are internal policy, not request options. Equality is allowed; the next
 byte/item fails `LimitExceeded`. Count before allocation where possible and stop
-streaming as soon as the bound is exceeded. D-Bus decoding must be bounded too.
+streaming as soon as the bound is exceeded. D-Bus property readers enforce their
+fixed count and encoded-byte envelopes during decoding, before materializing an
+oversized payload; later orchestration retains the public `LimitExceeded` boundary.
+The source-count limit applies to the manager contribution and file occurrences,
+not to service alias names; identity names retain the separate M1 bound.
+File acquisition receives the remaining aggregate-byte budget and requests at
+most one byte beyond that budget to detect EOF versus the first excess byte;
+it never buffers an entire extra source before checking the 4 MiB limit.
 
 | Resource | Inclusive maximum | Accounting and rationale |
 | --- | ---: | --- |
@@ -224,13 +242,19 @@ streaming as soon as the bound is exceeded. D-Bus decoding must be bounded too.
 | Logical line | 65,536 UTF-8 bytes | Bytes accumulated for one logical record including quoting/continuation syntax before decoding; manager entry also counts as one record |
 | Path | 4,096 UTF-8 bytes | Each returned file/fragment/drop-in path; bounds path processing |
 | Configuration paths | 129 | One fragment plus 128 drop-ins; bounds consistency probes |
-| Whole operation | 5 seconds | Includes identity/protection, D-Bus, file access, parsing and final checks; no per-source reset or retries |
+| Managed operation | 5 seconds | Includes identity/protection, D-Bus, file access, parsing and final checks; no per-source reset or retries. This is not a strict wall-clock bound while a synchronous kernel syscall is blocked. |
 
 Every byte/count limit requires an exact-boundary success and boundary+1 failure
 test, including repeated sources, overridden assignments, multibyte UTF-8 and
 continuations. Deadline tests use a controlled clock: just-before completion,
 deadline reached (Timeout), and caller cancellation racing deadline (cancellation
-wins). A blocking read must not survive cancellation/deadline indefinitely.
+wins). Asynchronous reads receive the linked token. Linux `open`, `openat2`,
+`statx` and `fstatfs` expose no cancellation or deadline parameter, so the reader
+checks cancellation immediately before and after them but cannot interrupt a
+syscall already blocked in the kernel. A result returned after cancellation is
+released and never published. A killable helper process is intentionally not
+introduced for this internal-only capability; a future Agent operation may
+revisit isolation if operational evidence requires a strict wall-clock bound.
 
 ## Failure and trust boundary
 
@@ -258,12 +282,44 @@ names where relevant; never values or raw payloads. Masking belongs to future UI
 
 Typed fixed members prevent command injection; no caller path prevents generic
 file-read APIs. Canonical and alias checks prevent targeting bypass. Descriptor
-validation bounds traversal/symlink/TOCTOU exposure; limits and deadline bound
-resource exhaustion. There is no arbitrary write, reload or restart capability.
+validation bounds traversal/symlink/TOCTOU exposure; limits, the managed deadline
+and cooperative cancellation bound application-controlled resource use. A
+blocked synchronous filesystem syscall remains an explicitly documented
+availability limitation. There is no arbitrary write, reload or restart
+capability.
 Future integration tests must cover permitted, unauthorized, malicious identity,
 protected aliases/instances and similarly named controls before any source read.
 
 ## Evidence and rollout gates
+
+### M2.5 source-acquisition implementation
+
+`Serval.Systemd` now contains an internal `SystemdEnvironmentSourceReader` that
+implements the source-acquisition portion of this strategy. It reuses the M1
+identity resolver, reads only fixed typed Unit and Service properties, applies
+protected-family checks before value-bearing property and file access, and returns
+a disposable manager-plus-files source snapshot. The Linux file boundary uses
+descriptor-relative `openat2` no-follow resolution, rejects special and known
+pseudo-filesystems, including kernel virtual filesystems identified by the
+supported Linux `magic.h` constants, while retaining intended `tmpfs` sources.
+It retains object identity through validation and clears owned unpublished byte
+buffers on failure or disposal. It checks cancellation around
+every synchronous filesystem call and releases any descriptor returned after
+cancellation; it does not claim that managed cancellation can interrupt a syscall
+already blocked in the kernel.
+
+The implementation is verified by isolated policy, transport, ownership, limit,
+deadline and race tests; Linux filesystem tests; and the existing disposable
+real-systemd harness. The supported CI jobs exercise the harness on systemd 249,
+255, 257 and 259 across their configured x64 and ARM64 runners. Local evidence is
+environment-specific and does not substitute for that matrix.
+
+This is still only a bounded optimistic observation. It cannot establish an
+atomic system-wide snapshot or predict a future service start. M2.5 does not parse
+file contents, compose effective values, implement the application reader, expose
+IPC, authenticate or authorize a caller, write configuration, reload systemd, or
+perform lifecycle actions. Those remain separate changes with their own trust-
+boundary requirements.
 
 Semantics reference: [systemd.exec](https://raw.githubusercontent.com/systemd/systemd/main/man/systemd.exec.xml),
 [systemd.unit](https://raw.githubusercontent.com/systemd/systemd/main/man/systemd.unit.xml),
