@@ -321,6 +321,33 @@ IPC, authenticate or authorize a caller, write configuration, reload systemd, or
 perform lifecycle actions. Those remain separate changes with their own trust-
 boundary requirements.
 
+### M2.6 environment-composition implementation
+
+`Serval.Systemd` now contains an internal, I/O-free
+`SystemdEnvironmentComposer`. It binds one parsed candidate slot to every M2.5
+file occurrence, revalidates source identity, order, byte correspondence,
+metadata/value consistency, and aggregate limits, then applies the manager
+contribution followed by present file occurrences in declaration order. The
+published result retains ordered value-free source metadata and ordinally sorted
+variable metadata with only the winning request-local source ID. Selected values
+are copied into a fresh disposable owner; replaced, invalid, canceled, over-limit,
+and otherwise unpublished buffers are cleared on every exit.
+
+Focused tests cover complete and malformed handoffs, precedence, repeated file
+occurrences, empty and case-distinct values, provenance, exact and first-excess
+limits, cancellation, sanitized diagnostics, and ownership cleanup. The existing
+collision-checked disposable real-systemd harness now acquires, parses, composes,
+and compares synthetic winners with the manager-observed process environment. The
+same harness is configured for the supported systemd 249, 255, 257, and 259 CI
+baselines; local systemd 255 evidence does not substitute for that CI matrix.
+
+M2.6 remains an unused internal mechanism. Issue #40 must perform acquisition and
+decreasing-allowance parsing before invoking it under the shared operation
+deadline. No application reader, Web integration, IPC operation, or Agent
+authorization is added here. A future Agent exposure must still authenticate and
+authorize the exact reveal operation and enforce protected-service policy before
+any value-bearing read.
+
 Semantics reference: [systemd.exec](https://raw.githubusercontent.com/systemd/systemd/main/man/systemd.exec.xml),
 [systemd.unit](https://raw.githubusercontent.com/systemd/systemd/main/man/systemd.unit.xml),
 and [typed D-Bus baseline source](https://raw.githubusercontent.com/systemd/systemd/v249/src/core/dbus-execute.c).

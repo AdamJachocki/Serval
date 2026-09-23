@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
+using System.Text;
 using Serval.Application.Services;
 using Serval.Domain.Services;
 using Serval.Systemd.DBus;
@@ -21,6 +23,7 @@ public sealed class RealSystemdEnvironmentSourceReaderTests
         {
             "/run/systemd/system/" + prefix + "-source-sample-one.env",
             "/run/systemd/system/" + prefix + "-source-sample-two.env",
+            "/run/systemd/system/" + prefix + "-source-sample-three.env",
         };
         var before = sourcePaths.ToDictionary(
             path => path,
@@ -40,17 +43,22 @@ public sealed class RealSystemdEnvironmentSourceReaderTests
 
             Assert.Equal(canonicalName, canonical.CanonicalServiceId.Value);
             Assert.Equal(canonicalName, alias.CanonicalServiceId.Value);
-            Assert.Single(canonical.ManagerSource.Variables);
-            Assert.Equal([1, 2, 3, 4], canonical.FileSources.Select(source => source.SourceId));
-            Assert.Equal([false, true, false, false], canonical.FileSources.Select(source => source.IsOptional));
-            Assert.Equal([false, true, false, false], canonical.FileSources.Select(source => source.IsMissing));
+            Assert.Equal(["ACTIVE", "CONFLICT"],
+                canonical.ManagerSource.Variables.Select(variable => variable.Name));
+            Assert.Equal([1, 2, 3, 4, 5], canonical.FileSources.Select(source => source.SourceId));
+            Assert.Equal([false, true, false, false, false],
+                canonical.FileSources.Select(source => source.IsOptional));
+            Assert.Equal([false, true, false, false, false],
+                canonical.FileSources.Select(source => source.IsMissing));
             Assert.Equal(canonical.FileSources.Select(source => source.IsMissing),
                 alias.FileSources.Select(source => source.IsMissing));
             Assert.True(canonical.FileSources[0].Reveal().SequenceEqual(before[sourcePaths[0]]),
                 "Source occurrence 1 did not match its fixed fixture.");
             Assert.True(canonical.FileSources[2].Reveal().SequenceEqual(before[sourcePaths[1]]),
                 "Source occurrence 3 did not match its fixed fixture.");
-            Assert.True(canonical.FileSources[3].Reveal().SequenceEqual(before[sourcePaths[0]]),
+            Assert.True(canonical.FileSources[3].Reveal().SequenceEqual(before[sourcePaths[2]]),
+                "Source occurrence 4 did not match its fixed fixture.");
+            Assert.True(canonical.FileSources[4].Reveal().SequenceEqual(before[sourcePaths[0]]),
                 "Repeated source occurrence did not preserve manager order.");
             foreach (var path in sourcePaths)
             {
@@ -70,6 +78,83 @@ public sealed class RealSystemdEnvironmentSourceReaderTests
         {
             foreach (var bytes in before.Values)
                 CryptographicOperations.ZeroMemory(bytes);
+        }
+    }
+
+    [Fact(Skip = "Requires real systemd and disposable composition fixtures.", SkipUnless = nameof(IsEnabled))]
+    public async Task ComposesOrderedSourcesToManagerObservedWinners()
+    {
+        var prefix = RequiredPrefix();
+        var unitName = prefix + "-source@sample.service";
+        ServiceEnvironmentReadResult.Success? composed = null;
+        Dictionary<string, byte[]>? processEnvironment = null;
+        try
+        {
+            var reader = new SystemdEnvironmentSourceReader();
+            var snapshot = Assert.IsType<SystemdEnvironmentSourceReadResult.Success>(
+                await reader.ReadAsync(new SystemServiceId(unitName), TestContext.Current.CancellationToken));
+            var candidates = new EnvironmentFileParseResult.Success?[snapshot.FileSources.Count];
+            try
+            {
+                var remainingAssignments = EnvironmentReadLimits.MaxAssignments - snapshot.ManagerSource.Assignments;
+                for (var index = 0; index < snapshot.FileSources.Count; index++)
+                {
+                    var source = snapshot.FileSources[index];
+                    if (source.IsMissing)
+                        continue;
+                    candidates[index] = Assert.IsType<EnvironmentFileParseResult.Success>(
+                        EnvironmentFileParser.Parse(source.Reveal(), source.SourceId, remainingAssignments,
+                            TestContext.Current.CancellationToken));
+                    remainingAssignments -= candidates[index]!.Assignments;
+                }
+
+                composed = Assert.IsType<ServiceEnvironmentReadResult.Success>(SystemdEnvironmentComposer.Compose(
+                    snapshot, candidates, TestContext.Current.CancellationToken));
+            }
+            catch
+            {
+                foreach (var candidate in candidates)
+                    candidate?.Dispose();
+                snapshot.Dispose();
+                throw;
+            }
+
+            processEnvironment = await ReadProcessEnvironmentAsync(unitName);
+            foreach (var variable in composed.Variables)
+            {
+                Assert.True(processEnvironment.TryGetValue(variable.Name, out var managerValue), variable.Name);
+                var expected = new byte[Encoding.UTF8.GetByteCount(composed.Values.Reveal(variable.Name))];
+                try
+                {
+                    _ = Encoding.UTF8.GetBytes(composed.Values.Reveal(variable.Name), expected);
+                    Assert.True(expected.AsSpan().SequenceEqual(managerValue), variable.Name);
+                }
+                finally
+                {
+                    CryptographicOperations.ZeroMemory(expected);
+                }
+            }
+
+            Assert.Equal(0, WinningSource(composed, "ACTIVE"));
+            Assert.Equal(3, WinningSource(composed, "CONFLICT"));
+            Assert.Equal(3, WinningSource(composed, "TWO"));
+            Assert.Equal(4, WinningSource(composed, "EMPTY"));
+            Assert.Equal(4, WinningSource(composed, "LATER"));
+            Assert.Equal(4, WinningSource(composed, "THREE"));
+            Assert.Equal(5, WinningSource(composed, "ONE"));
+            Assert.Equal(5, WinningSource(composed, "REPEATED"));
+            Assert.DoesNotContain(composed.Variables, variable => variable.Name == "REMOVED");
+            Assert.True(composed.Values.Reveal("EMPTY").IsEmpty, "empty-value");
+            Assert.Equal([0, 1, 2, 3, 4, 5], composed.Sources.Select(source => source.Id));
+            Assert.True(composed.Sources[2].IsOptional && composed.Sources[2].IsMissing,
+                "optional-missing-source");
+        }
+        finally
+        {
+            composed?.Dispose();
+            if (processEnvironment is not null)
+                Clear(processEnvironment);
+            await StopAsync(unitName);
         }
     }
 
@@ -175,6 +260,89 @@ public sealed class RealSystemdEnvironmentSourceReaderTests
         Assert.NotNull(prefix);
         Assert.Matches("^serval-enumeration-test-[a-f0-9-]+$", prefix);
         return prefix;
+    }
+
+    private static int WinningSource(ServiceEnvironmentReadResult.Success result, string name) =>
+        Assert.Single(result.Variables, variable => variable.Name == name).WinningSourceId;
+
+    private static async Task<Dictionary<string, byte[]>> ReadProcessEnvironmentAsync(string unitName)
+    {
+        await RunAsync("/usr/bin/systemctl", ["start", unitName]);
+        var pidText = await RunAsync("/usr/bin/systemctl", ["show", "--property=MainPID", "--value", unitName]);
+        Assert.True(int.TryParse(pidText.Trim(), out var pid) && pid > 0, "fixture-main-pid");
+        var raw = await File.ReadAllBytesAsync("/proc/" + pid + "/environ", TestContext.Current.CancellationToken);
+        try
+        {
+            var result = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+            var start = 0;
+            for (var index = 0; index <= raw.Length; index++)
+            {
+                if (index < raw.Length && raw[index] != 0)
+                    continue;
+                var entry = raw.AsSpan(start, index - start);
+                var separator = entry.IndexOf((byte)'=');
+                if (separator > 0)
+                    result[Encoding.ASCII.GetString(entry[..separator])] = entry[(separator + 1)..].ToArray();
+                start = index + 1;
+            }
+            return result;
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(raw);
+        }
+    }
+
+    private static async Task StopAsync(string unitName)
+    {
+        try
+        {
+            await RunAsync("/usr/bin/systemctl", ["stop", unitName]);
+        }
+        catch (InvalidOperationException)
+        {
+            // The harness cleanup is the final safety net when a fixture never started.
+        }
+    }
+
+    private static async Task<string> RunAsync(string executable, string[] arguments)
+    {
+        var startInfo = new ProcessStartInfo(executable)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        foreach (var argument in arguments)
+            startInfo.ArgumentList.Add(argument);
+        using var process = Process.Start(startInfo)!;
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        try
+        {
+            var output = process.StandardOutput.ReadToEndAsync(timeout.Token);
+            var error = process.StandardError.ReadToEndAsync(timeout.Token);
+            await process.WaitForExitAsync(timeout.Token);
+            _ = await error;
+            if (process.ExitCode != 0)
+                throw new InvalidOperationException("Composition fixture command failed.");
+            return await output;
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync(CancellationToken.None);
+            }
+        }
+    }
+
+    private static void Clear(Dictionary<string, byte[]> environment)
+    {
+        foreach (var value in environment.Values)
+            CryptographicOperations.ZeroMemory(value);
+        environment.Clear();
     }
 
     private sealed class DisappearingFixtureFileAccess(string fixturePath) : ISystemdSourceFileAccess

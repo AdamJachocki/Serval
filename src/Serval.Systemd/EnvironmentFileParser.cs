@@ -64,7 +64,7 @@ internal static class EnvironmentFileParser
             cancellationToken.ThrowIfCancellationRequested();
             values.Freeze();
             return new EnvironmentFileParseResult.Success(
-                values, Array.AsReadOnly(variables), source.Length, validation.Assignments);
+                sourceId, values, Array.AsReadOnly(variables), source.Length, validation.Assignments);
         }
         catch
         {
