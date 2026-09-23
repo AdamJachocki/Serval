@@ -153,6 +153,7 @@ LoadedEnvironmentDecoder.cs
 EnvironmentReadLimits.cs
 SystemdEnvironmentSourceReader.cs
 SystemdEnvironmentSourceReadResult.cs
+SystemdEnvironmentComposer.cs
 SystemdSourcePath.cs
 LinuxSystemdSourceFileAccess.cs
 ```
@@ -161,6 +162,9 @@ Start here for parsing environment files or decoding environment information ret
 `SystemdEnvironmentSourceReader` and `LinuxSystemdSourceFileAccess` form the
 internal, disposable M2.5 source-acquisition and safe Linux file boundary; they do
 not implement the application-facing environment reader or value composition.
+`SystemdEnvironmentComposer` is the internal M2.6 I/O-free composition boundary
+for complete acquired and parsed source sets; issue #40 remains responsible for
+wiring acquisition, parsing, and composition into the application-facing reader.
 
 #### Protected services
 

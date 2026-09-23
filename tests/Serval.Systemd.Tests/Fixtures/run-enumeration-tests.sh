@@ -49,6 +49,7 @@ source_alias_name="$prefix-source-alias@sample.service"
 source_alias="$root/$source_alias_name"
 source_one="$root/$prefix-source-sample-one.env"
 source_two="$root/$prefix-source-sample-two.env"
+source_three="$root/$prefix-source-sample-three.env"
 source_missing="$root/$prefix-source-sample-optional-missing.env"
 source_required_name="$prefix-source-required-missing.service"
 source_required_unit="$root/$source_required_name"
@@ -104,13 +105,13 @@ for name in "${fixture_names[@]}"; do
         exit 1
     fi
 done
-for file in "$inactive" "$alias" "$template" "$instance" "$instance_alias" "$template_alias" "$privileged" "$privileged_alias" "$lookalike" "$failed" "$masked" "$environment_unit" "$environment_dropin" "$environment_file_unit" "$environment_file_source" "$environment_invalid_unit" "$environment_invalid_source" "$environment_divergence_template" "$environment_divergence_lf" "$environment_divergence_cr" "$environment_divergence_crlf" "$source_template" "$source_dropin" "$source_alias" "$source_one" "$source_two" "$source_missing" "$source_required_unit" "$source_required_missing" "$source_unsupported_unit" "$source_disappear_unit"; do
+for file in "$inactive" "$alias" "$template" "$instance" "$instance_alias" "$template_alias" "$privileged" "$privileged_alias" "$lookalike" "$failed" "$masked" "$environment_unit" "$environment_dropin" "$environment_file_unit" "$environment_file_source" "$environment_invalid_unit" "$environment_invalid_source" "$environment_divergence_template" "$environment_divergence_lf" "$environment_divergence_cr" "$environment_divergence_crlf" "$source_template" "$source_dropin" "$source_alias" "$source_one" "$source_two" "$source_three" "$source_missing" "$source_required_unit" "$source_required_missing" "$source_unsupported_unit" "$source_disappear_unit"; do
     test ! -e "$file" && test ! -L "$file"
 done
 cleanup() {
     systemctl stop "$environment_file_name" "$environment_invalid_name" \
         "$prefix-environment-divergence@lf.service" "$prefix-environment-divergence@cr.service" \
-        "$prefix-environment-divergence@crlf.service" || true
+        "$prefix-environment-divergence@crlf.service" "$source_name" || true
     systemctl stop "$prefix-transient.service" "$prefix-worker@loaded.service" || true
     systemctl reset-failed "$prefix-failed.service" || true
     rm -f -- "$inactive" "$alias" "$template" "$instance" "$instance_alias" "$template_alias" "$privileged" "$privileged_alias" "$lookalike" "$failed" "$masked"
@@ -120,7 +121,7 @@ cleanup() {
         "$environment_divergence_cr" "$environment_divergence_crlf"
     rm -f -- "$source_template" "$source_dropin/10-manager.conf" \
         "$source_dropin/20-sources.conf" "$source_dropin/30-repeat.conf" "$source_alias" \
-        "$source_one" "$source_two" "$source_required_unit" "$source_unsupported_unit" \
+        "$source_one" "$source_two" "$source_three" "$source_required_unit" "$source_unsupported_unit" \
         "$source_disappear_unit"
     rmdir -- "$environment_dropin" || true
     rmdir -- "$source_dropin" || true
@@ -149,21 +150,23 @@ mkdir -m 700 -- "$source_dropin"
 (
     umask 077
     marker="$(cat /proc/sys/kernel/random/uuid)"
-    printf 'ONE=%s\n' "$marker" > "$source_one"
-    printf 'TWO=%s\n' "$marker" > "$source_two"
+    printf 'ONE=%s-one\nREPEATED=%s-repeated\n' "$marker" "$marker" > "$source_one"
+    printf 'TWO=%s-two\nLATER=%s-earlier\nCONFLICT=%s-file\n' "$marker" "$marker" "$marker" > "$source_two"
+    printf 'THREE=%s-three\nLATER=%s-later\nEMPTY=\n' "$marker" "$marker" > "$source_three"
     cat > "$source_template" <<UNIT
 [Unit]
 Description=Serval ordered source reader fixture
 [Service]
-Type=oneshot
+Type=simple
 Environment=REMOVED=$marker
 EnvironmentFile=$source_two
-ExecStart=/usr/bin/true
+ExecStart=/usr/bin/sleep 300
 UNIT
     cat > "$source_dropin/10-manager.conf" <<UNIT
 [Service]
 Environment=
 Environment=ACTIVE=$marker-%%i
+Environment=CONFLICT=$marker-manager
 UNIT
     cat > "$source_dropin/20-sources.conf" <<UNIT
 [Service]
@@ -171,6 +174,7 @@ EnvironmentFile=
 EnvironmentFile=$source_one
 EnvironmentFile=-$source_missing
 EnvironmentFile=$source_two
+EnvironmentFile=$source_three
 UNIT
     cat > "$source_dropin/30-repeat.conf" <<UNIT
 [Service]
