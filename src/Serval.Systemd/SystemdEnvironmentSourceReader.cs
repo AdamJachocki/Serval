@@ -5,20 +5,35 @@ using static Serval.Systemd.SystemdServiceIdentity;
 
 namespace Serval.Systemd;
 
-// Internal acquisition only. Agent authorization and application composition are intentionally absent.
+internal delegate Task<ISystemdDbusTransport> SystemdEnvironmentTransportFactory(
+    TimeSpan remainingAllowance, CancellationToken cancellationToken);
+
+internal enum SystemdEnvironmentReadStage
+{
+    BeforeConnection,
+    BeforeResolution,
+    BeforeEnvironmentAcquisition,
+    BeforeFileObservation,
+    BeforeParsing,
+    BeforeComposition,
+    BeforeFinalValidation,
+    BeforeCleanup,
+    BeforePublication,
+}
+
+// Internal acquisition only. Agent authorization and application composition remain outside this type.
 internal sealed class SystemdEnvironmentSourceReader
 {
-    private readonly Func<CancellationToken, Task<ISystemdDbusTransport>> _connect;
+    private readonly SystemdEnvironmentTransportFactory _connect;
     private readonly ISystemdSourceFileAccess _files;
     private readonly TimeProvider _timeProvider;
+    private readonly Action<SystemdEnvironmentReadStage>? _stageObserver;
 
     internal SystemdEnvironmentSourceReader()
         : this(
-            async token => await SystemdDbusTransport.ConnectAsync(
-                EnvironmentReadLimits.OperationDeadline,
-                token).ConfigureAwait(false),
-            new LinuxSystemdSourceFileAccess(),
-            TimeProvider.System)
+            static async (allowance, token) => await SystemdDbusTransport.ConnectAsync(
+                allowance, token).ConfigureAwait(false),
+            new LinuxSystemdSourceFileAccess(), TimeProvider.System)
     {
     }
 
@@ -26,194 +41,280 @@ internal sealed class SystemdEnvironmentSourceReader
         Func<CancellationToken, Task<ISystemdDbusTransport>> connect,
         ISystemdSourceFileAccess files,
         TimeProvider timeProvider)
+        : this((_, token) => connect(token), files, timeProvider)
+    {
+        ArgumentNullException.ThrowIfNull(connect);
+    }
+
+    internal SystemdEnvironmentSourceReader(
+        SystemdEnvironmentTransportFactory connect,
+        ISystemdSourceFileAccess files,
+        TimeProvider timeProvider,
+        Action<SystemdEnvironmentReadStage>? stageObserver = null)
     {
         _connect = connect ?? throw new ArgumentNullException(nameof(connect));
         _files = files ?? throw new ArgumentNullException(nameof(files));
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
+        _stageObserver = stageObserver;
     }
 
+    /// <summary>
+    /// Compatibility acquisition path. It uses the same policy and retained-session pipeline as
+    /// the application reader, but validates and closes the session before returning raw sources.
+    /// </summary>
     internal async Task<SystemdEnvironmentSourceReadResult> ReadAsync(
-        SystemServiceId serviceId,
-        CancellationToken cancellationToken)
+        SystemServiceId serviceId, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(serviceId);
-        _ = new SystemServiceId(serviceId.Value);
-        if (IsTemplate(serviceId.Value))
-            throw new ArgumentException("Source reading requires a concrete service identifier.", nameof(serviceId));
-        cancellationToken.ThrowIfCancellationRequested();
-        if (BuiltInProtectedServices.IsProtected(serviceId))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            return Failure(EnvironmentReadFailureCode.ProtectedTarget);
-        }
-
-        using var deadline = new CancellationTokenSource(EnvironmentReadLimits.OperationDeadline, _timeProvider);
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
-        SystemdEnvironmentSourceReadResult.Failure PreferCancellation(
-            SystemdEnvironmentSourceReadResult.Failure failure)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            return deadline.IsCancellationRequested
-                ? Failure(EnvironmentReadFailureCode.Timeout)
-                : failure;
-        }
-
+        ValidateRequest(serviceId);
+        using var operation = new SystemdEnvironmentOperationContext(_timeProvider, cancellationToken);
         try
         {
-            linked.Token.ThrowIfCancellationRequested();
-            await using var transport = await _connect(linked.Token).ConfigureAwait(false);
-            SystemdCompatibility.ValidateVersion(
-                await transport.GetManagerVersionAsync(linked.Token).ConfigureAwait(false));
-            var resolved = await SystemdServiceResolver.ResolveOnceAsync(transport, serviceId, linked.Token)
-                .ConfigureAwait(false);
-            if (resolved is null)
-                return PreferCancellation(Failure(EnvironmentReadFailureCode.NotFound));
-            if (BuiltInProtectedServices.IsProtected(resolved.Identity.Id, resolved.Identity.Names))
-                return PreferCancellation(Failure(EnvironmentReadFailureCode.ProtectedTarget));
+            var acquisition = await AcquireAsync(serviceId, operation).ConfigureAwait(false);
+            if (acquisition.Failure is { } acquisitionFailure)
+                return operation.Prefer(acquisitionFailure);
 
-            SystemdEnvironmentProperties initial;
+            await using var session = acquisition.Session!;
+            SystemdEnvironmentSourceReadResult.Success? snapshot = null;
+            var transferred = false;
             try
             {
-                initial = await transport.ReadEnvironmentPropertiesAsync(resolved.Unit, linked.Token)
-                    .ConfigureAwait(false);
-            }
-            catch (SystemdDbusException exception) when (IsDisappearance(exception))
-            {
-                return PreferCancellation(Failure(EnvironmentReadFailureCode.InconsistentSnapshot));
-            }
-            catch (SystemdDbusException exception) when (IsMissingRequiredProperty(exception))
-            {
-                return PreferCancellation(Unsupported(EnvironmentUnsupportedReason.UnsupportedProperty));
-            }
-            var validationFailure = ValidateInitial(initial, resolved.Identity, serviceId);
-            if (validationFailure is not null)
-                return PreferCancellation(validationFailure);
+                snapshot = session.TakeSnapshot();
+                var validationFailure = await session.ValidateAsync(operation).ConfigureAwait(false);
+                if (validationFailure is not null)
+                    return operation.Prefer(validationFailure);
 
-            using var candidate = new SourceCandidate();
-            foreach (var path in ConfigurationPaths(initial))
-            {
-                var observation = await _files.ObserveAsync(
-                    path,
-                    readContent: false,
-                    allowMissing: false,
-                    linked.Token).ConfigureAwait(false);
-                candidate.Configuration.Add(observation);
+                var cleanupFailure = await session.CloseAsync(operation).ConfigureAwait(false);
+                if (cleanupFailure is not null)
+                    return operation.Prefer(cleanupFailure);
+
+                operation.ThrowIfStopped();
+                transferred = true;
+                return snapshot;
             }
-
-            var decoded = LoadedEnvironmentDecoder.Decode(initial.Environment.ToArray(), linked.Token);
-            if (decoded is LoadedEnvironmentResult.Failure decodeFailure)
-                return PreferCancellation(Failure(decodeFailure.Code, sourceId: 0));
-            candidate.Manager = (LoadedEnvironmentResult.Success)decoded;
-            candidate.TotalBytes = candidate.Manager.SourceBytes;
-
-            for (var index = 0; index < initial.EnvironmentFiles.Count; index++)
+            finally
             {
-                linked.Token.ThrowIfCancellationRequested();
-                var declaration = initial.EnvironmentFiles[index];
-                var sourceId = index + 1;
-                SystemdFileObservation observation;
-                try
-                {
-                    var remainingBytes = EnvironmentReadLimits.MaxTotalSourceBytes - candidate.TotalBytes;
-                    observation = await _files.ObserveAsync(
-                        declaration.Path,
-                        readContent: true,
-                        allowMissing: declaration.IgnoreErrors,
-                        linked.Token,
-                        Math.Min(EnvironmentReadLimits.MaxSourceBytes, remainingBytes))
-                        .ConfigureAwait(false);
-                }
-                catch (SystemdSourceFileException exception)
-                {
-                    return PreferCancellation(MapFileFailure(exception.Failure, sourceId));
-                }
-
-                candidate.Files.Add(observation);
-                if (!observation.IsMissing)
-                {
-                    if (observation.ContentLength > EnvironmentReadLimits.MaxTotalSourceBytes - candidate.TotalBytes)
-                        return PreferCancellation(Failure(EnvironmentReadFailureCode.LimitExceeded, sourceId: sourceId));
-                    candidate.TotalBytes += observation.ContentLength;
-                }
+                if (!transferred)
+                    snapshot?.Dispose();
             }
-
-            SystemdEnvironmentProperties final;
-            try
-            {
-                final = await transport.ReadEnvironmentPropertiesAsync(resolved.Unit, linked.Token)
-                    .ConfigureAwait(false);
-            }
-            catch (SystemdDbusException exception) when (
-                IsDisappearance(exception) || IsMissingRequiredProperty(exception))
-            {
-                return PreferCancellation(Failure(EnvironmentReadFailureCode.InconsistentSnapshot));
-            }
-            catch (SystemdDbusException exception) when (
-                exception.FailureKind is SystemdDbusFailureKind.MalformedReply or
-                    SystemdDbusFailureKind.IncompatibleReply)
-            {
-                return PreferCancellation(Failure(EnvironmentReadFailureCode.InconsistentSnapshot));
-            }
-
-            if (!PropertiesEqual(initial, final))
-                return PreferCancellation(Failure(EnvironmentReadFailureCode.InconsistentSnapshot));
-            foreach (var observation in candidate.Configuration.Concat(candidate.Files))
-                if (!await _files.IsStableAsync(observation, linked.Token).ConfigureAwait(false))
-                    return PreferCancellation(Failure(EnvironmentReadFailureCode.InconsistentSnapshot));
-
-            cancellationToken.ThrowIfCancellationRequested();
-            linked.Token.ThrowIfCancellationRequested();
-            return candidate.Publish(resolved.Identity.Id, initial.EnvironmentFiles);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw new OperationCanceledException(cancellationToken);
         }
-        catch (OperationCanceledException) when (deadline.IsCancellationRequested)
+        catch (OperationCanceledException) when (operation.HasExpired)
         {
-            return PreferCancellation(Failure(EnvironmentReadFailureCode.Timeout));
+            return operation.Prefer(Failure(EnvironmentReadFailureCode.Timeout));
+        }
+    }
+
+    internal async Task<SystemdEnvironmentAcquisition> AcquireAsync(
+        SystemServiceId serviceId, SystemdEnvironmentOperationContext operation)
+    {
+        ValidateRequest(serviceId);
+        ArgumentNullException.ThrowIfNull(operation);
+        operation.ThrowIfStopped();
+        if (BuiltInProtectedServices.IsProtected(serviceId))
+            return SystemdEnvironmentAcquisition.FromFailure(
+                operation.Prefer(Failure(EnvironmentReadFailureCode.ProtectedTarget)));
+
+        ISystemdDbusTransport? transport = null;
+        LoadedEnvironmentResult.Success? manager = null;
+        var configuration = new List<SystemdFileObservation>();
+        var files = new List<SystemdFileObservation>();
+        var transferred = false;
+        try
+        {
+            ObserveStage(SystemdEnvironmentReadStage.BeforeConnection, operation);
+            transport = await _connect(operation.RemainingAllowance, operation.Token)
+                .ConfigureAwait(false);
+            operation.ThrowIfStopped();
+            SystemdCompatibility.ValidateVersion(
+                await transport.GetManagerVersionAsync(operation.Token).ConfigureAwait(false));
+
+            ObserveStage(SystemdEnvironmentReadStage.BeforeResolution, operation);
+            var resolved = await SystemdServiceResolver.ResolveOnceAsync(
+                    transport, serviceId, operation.Token)
+                .ConfigureAwait(false);
+            operation.ThrowIfStopped();
+            if (resolved is null)
+                return SystemdEnvironmentAcquisition.FromFailure(
+                    operation.Prefer(Failure(EnvironmentReadFailureCode.NotFound)));
+            if (BuiltInProtectedServices.IsProtected(resolved.Identity.Id, resolved.Identity.Names))
+                return SystemdEnvironmentAcquisition.FromFailure(
+                    operation.Prefer(Failure(EnvironmentReadFailureCode.ProtectedTarget)));
+
+            ObserveStage(SystemdEnvironmentReadStage.BeforeEnvironmentAcquisition, operation);
+            SystemdEnvironmentProperties initial;
+            try
+            {
+                initial = await transport.ReadEnvironmentPropertiesAsync(resolved.Unit, operation.Token)
+                    .ConfigureAwait(false);
+            }
+            catch (SystemdDbusException exception) when (IsDisappearance(exception))
+            {
+                return SystemdEnvironmentAcquisition.FromFailure(
+                    operation.Prefer(Failure(EnvironmentReadFailureCode.InconsistentSnapshot)));
+            }
+            catch (SystemdDbusException exception) when (IsMissingRequiredProperty(exception))
+            {
+                return SystemdEnvironmentAcquisition.FromFailure(
+                    operation.Prefer(Unsupported(EnvironmentUnsupportedReason.UnsupportedProperty)));
+            }
+
+            var validationFailure = ValidateInitial(initial, resolved.Identity, serviceId);
+            if (validationFailure is not null)
+                return SystemdEnvironmentAcquisition.FromFailure(operation.Prefer(validationFailure));
+
+            foreach (var path in ConfigurationPaths(initial))
+            {
+                ObserveStage(SystemdEnvironmentReadStage.BeforeFileObservation, operation);
+                var observation = await _files.ObserveAsync(
+                    path, readContent: false, allowMissing: false, operation.Token)
+                    .ConfigureAwait(false);
+                operation.ThrowIfStopped();
+                configuration.Add(observation);
+            }
+
+            var decoded = LoadedEnvironmentDecoder.Decode(initial.Environment.ToArray(), operation.Token);
+            if (decoded is LoadedEnvironmentResult.Failure decodeFailure)
+                return SystemdEnvironmentAcquisition.FromFailure(operation.Prefer(
+                    Failure(decodeFailure.Code, sourceId: 0)));
+
+            manager = (LoadedEnvironmentResult.Success)decoded;
+            var totalBytes = manager.SourceBytes;
+            for (var index = 0; index < initial.EnvironmentFiles.Count; index++)
+            {
+                ObserveStage(SystemdEnvironmentReadStage.BeforeFileObservation, operation);
+                var declaration = initial.EnvironmentFiles[index];
+                var sourceId = index + 1;
+                SystemdFileObservation observation;
+                try
+                {
+                    var remainingBytes = EnvironmentReadLimits.MaxTotalSourceBytes - totalBytes;
+                    observation = await _files.ObserveAsync(
+                        declaration.Path, readContent: true,
+                        allowMissing: declaration.IgnoreErrors, operation.Token,
+                        Math.Min(EnvironmentReadLimits.MaxSourceBytes, remainingBytes))
+                        .ConfigureAwait(false);
+                    operation.ThrowIfStopped();
+                }
+                catch (SystemdSourceFileException exception)
+                {
+                    return SystemdEnvironmentAcquisition.FromFailure(
+                        operation.Prefer(MapFileFailure(exception.Failure, sourceId)));
+                }
+
+                files.Add(observation);
+                if (!observation.IsMissing)
+                {
+                    if (observation.ContentLength > EnvironmentReadLimits.MaxTotalSourceBytes - totalBytes)
+                    {
+                        return SystemdEnvironmentAcquisition.FromFailure(operation.Prefer(
+                            Failure(EnvironmentReadFailureCode.LimitExceeded, sourceId: sourceId)));
+                    }
+                    totalBytes += observation.ContentLength;
+                }
+            }
+
+            var session = new SystemdEnvironmentAcquisitionSession(
+                transport, _files, resolved, serviceId, initial, manager,
+                configuration, files, _stageObserver);
+            transport = null;
+            manager = null;
+            configuration = [];
+            files = [];
+            transferred = true;
+            return SystemdEnvironmentAcquisition.FromSession(session);
+        }
+        catch (OperationCanceledException) when (operation.CallerCancellation.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(operation.CallerCancellation);
+        }
+        catch (OperationCanceledException) when (operation.HasExpired)
+        {
+            return SystemdEnvironmentAcquisition.FromFailure(
+                operation.Prefer(Failure(EnvironmentReadFailureCode.Timeout)));
         }
         catch (SystemdSourceFileException exception)
         {
-            return PreferCancellation(MapFileFailure(exception.Failure, sourceId: null));
+            return SystemdEnvironmentAcquisition.FromFailure(
+                operation.Prefer(MapFileFailure(exception.Failure, sourceId: null)));
         }
         catch (SystemdDbusException exception) when (
-            exception.FailureKind == SystemdDbusFailureKind.Timeout && deadline.IsCancellationRequested)
+            exception.FailureKind == SystemdDbusFailureKind.Timeout && operation.HasExpired)
         {
-            return PreferCancellation(Failure(EnvironmentReadFailureCode.Timeout));
+            return SystemdEnvironmentAcquisition.FromFailure(
+                operation.Prefer(Failure(EnvironmentReadFailureCode.Timeout)));
         }
         catch (SystemdDbusException exception) when (
             exception.FailureKind == SystemdDbusFailureKind.LimitExceeded)
         {
-            return PreferCancellation(Failure(EnvironmentReadFailureCode.LimitExceeded));
+            return SystemdEnvironmentAcquisition.FromFailure(
+                operation.Prefer(Failure(EnvironmentReadFailureCode.LimitExceeded)));
         }
         catch (SystemdDbusException exception) when (
             exception.FailureKind is SystemdDbusFailureKind.MalformedReply or
                 SystemdDbusFailureKind.IncompatibleReply or
                 SystemdDbusFailureKind.UnsupportedVersion)
         {
-            return PreferCancellation(Failure(
+            return SystemdEnvironmentAcquisition.FromFailure(operation.Prefer(Failure(
                 EnvironmentReadFailureCode.UnsupportedConfiguration,
-                EnvironmentUnsupportedReason.UnsupportedProperty));
+                EnvironmentUnsupportedReason.UnsupportedProperty)));
         }
         catch (SystemdDbusException)
         {
-            return PreferCancellation(Failure(EnvironmentReadFailureCode.TransportError));
+            return SystemdEnvironmentAcquisition.FromFailure(
+                operation.Prefer(Failure(EnvironmentReadFailureCode.TransportError)));
+        }
+        finally
+        {
+            if (!transferred)
+            {
+                for (var index = files.Count - 1; index >= 0; index--)
+                    files[index].Dispose();
+                for (var index = configuration.Count - 1; index >= 0; index--)
+                    configuration[index].Dispose();
+                manager?.Dispose();
+                if (transport is not null)
+                {
+                    try
+                    {
+                        await transport.DisposeAsync().ConfigureAwait(false);
+                    }
+                    catch (Exception exception) when (IsExpectedCleanupFailure(exception))
+                    {
+                        // A controlled acquisition failure remains primary and contains no raw detail.
+                    }
+                }
+            }
         }
     }
 
-    private static SystemdEnvironmentSourceReadResult.Failure? ValidateInitial(
+    private void ObserveStage(
+        SystemdEnvironmentReadStage stage, SystemdEnvironmentOperationContext operation)
+    {
+        operation.ThrowIfStopped();
+        _stageObserver?.Invoke(stage);
+        operation.ThrowIfStopped();
+    }
+
+    private static void ValidateRequest(SystemServiceId serviceId)
+    {
+        ArgumentNullException.ThrowIfNull(serviceId);
+        _ = new SystemServiceId(serviceId.Value);
+        if (IsTemplate(serviceId.Value))
+            throw new ArgumentException(
+                "Environment reading requires a concrete service identifier.", nameof(serviceId));
+    }
+
+    internal static SystemdEnvironmentSourceReadResult.Failure? ValidateInitial(
         SystemdEnvironmentProperties properties,
         SystemdServiceIdentity resolved,
         SystemServiceId requested)
     {
         var identity = new SystemdServiceIdentity(new SystemdUnitProperties(
-            properties.Id,
-            properties.Names,
-            string.Empty,
-            properties.LoadState,
-            "inactive",
-            "dead"));
+            properties.Id, properties.Names, string.Empty, properties.LoadState,
+            "inactive", "dead"));
         if (!string.Equals(identity.Id.Value, resolved.Id.Value, StringComparison.Ordinal))
             return Failure(EnvironmentReadFailureCode.InconsistentSnapshot);
         identity.RequireName(requested.Value);
@@ -260,11 +361,10 @@ internal sealed class SystemdEnvironmentSourceReader
             if (pathFailure is { } reason)
                 return Unsupported(reason);
         }
-
         return null;
     }
 
-    private static IReadOnlyList<string> ConfigurationPaths(SystemdEnvironmentProperties properties)
+    internal static IReadOnlyList<string> ConfigurationPaths(SystemdEnvironmentProperties properties)
     {
         if (properties.FragmentPath.Length == 0)
             return properties.DropInPaths;
@@ -275,7 +375,8 @@ internal sealed class SystemdEnvironmentSourceReader
         return paths;
     }
 
-    private static bool PropertiesEqual(SystemdEnvironmentProperties left, SystemdEnvironmentProperties right) =>
+    internal static bool PropertiesEqual(
+        SystemdEnvironmentProperties left, SystemdEnvironmentProperties right) =>
         string.Equals(left.Id, right.Id, StringComparison.Ordinal) &&
         left.Names.SequenceEqual(right.Names, StringComparer.Ordinal) &&
         string.Equals(left.LoadState, right.LoadState, StringComparison.Ordinal) &&
@@ -289,19 +390,18 @@ internal sealed class SystemdEnvironmentSourceReader
         left.UnsetEnvironment.SequenceEqual(right.UnsetEnvironment, StringComparer.Ordinal) &&
         left.PassEnvironment.SequenceEqual(right.PassEnvironment, StringComparer.Ordinal);
 
-    private static bool IsDisappearance(SystemdDbusException exception) =>
+    internal static bool IsDisappearance(SystemdDbusException exception) =>
         exception.FailureKind == SystemdDbusFailureKind.RemoteError &&
         exception.RemoteErrorName is "org.freedesktop.systemd1.NoSuchUnit" or
             "org.freedesktop.DBus.Error.UnknownObject";
 
-    private static bool IsMissingRequiredProperty(SystemdDbusException exception) =>
+    internal static bool IsMissingRequiredProperty(SystemdDbusException exception) =>
         exception.FailureKind == SystemdDbusFailureKind.RemoteError &&
         exception.RemoteErrorName is "org.freedesktop.DBus.Error.UnknownProperty" or
             "org.freedesktop.DBus.Error.UnknownInterface";
 
-    private static SystemdEnvironmentSourceReadResult.Failure MapFileFailure(
-        SystemdSourceFileFailure failure,
-        int? sourceId) => failure switch
+    internal static SystemdEnvironmentSourceReadResult.Failure MapFileFailure(
+        SystemdSourceFileFailure failure, int? sourceId) => failure switch
         {
             SystemdSourceFileFailure.Missing or SystemdSourceFileFailure.Unavailable =>
                 Failure(EnvironmentReadFailureCode.SourceUnavailable, sourceId: sourceId),
@@ -314,60 +414,246 @@ internal sealed class SystemdEnvironmentSourceReader
             _ => Failure(EnvironmentReadFailureCode.SourceUnavailable, sourceId: sourceId),
         };
 
-    private static SystemdEnvironmentSourceReadResult.Failure Unsupported(
-        EnvironmentUnsupportedReason reason,
-        int? sourceId = null) =>
+    internal static SystemdEnvironmentSourceReadResult.Failure Unsupported(
+        EnvironmentUnsupportedReason reason, int? sourceId = null) =>
         Failure(EnvironmentReadFailureCode.UnsupportedConfiguration, reason, sourceId);
 
-    private static SystemdEnvironmentSourceReadResult.Failure Failure(
+    internal static SystemdEnvironmentSourceReadResult.Failure Failure(
         EnvironmentReadFailureCode code,
         EnvironmentUnsupportedReason? reason = null,
         int? sourceId = null) => new(code, reason, sourceId);
 
-    private sealed class SourceCandidate : IDisposable
-    {
-        internal LoadedEnvironmentResult.Success? Manager { get; set; }
-        internal List<SystemdFileObservation> Configuration { get; } = [];
-        internal List<SystemdFileObservation> Files { get; } = [];
-        internal int TotalBytes { get; set; }
+    internal static bool IsExpectedCleanupFailure(Exception exception) =>
+        exception is SystemdDbusException or SystemdSourceFileException or
+            IOException or UnauthorizedAccessException;
+}
 
-        internal SystemdEnvironmentSourceReadResult.Success Publish(
-            SystemServiceId canonicalId,
-            IReadOnlyList<SystemdEnvironmentFile> declarations)
+internal sealed class SystemdEnvironmentAcquisition
+{
+    private SystemdEnvironmentAcquisition(
+        SystemdEnvironmentAcquisitionSession? session,
+        SystemdEnvironmentSourceReadResult.Failure? failure)
+    {
+        Session = session;
+        Failure = failure;
+    }
+
+    internal SystemdEnvironmentAcquisitionSession? Session { get; }
+    internal SystemdEnvironmentSourceReadResult.Failure? Failure { get; }
+
+    internal static SystemdEnvironmentAcquisition FromSession(
+        SystemdEnvironmentAcquisitionSession session) => new(session, null);
+
+    internal static SystemdEnvironmentAcquisition FromFailure(
+        SystemdEnvironmentSourceReadResult.Failure failure) => new(null, failure);
+}
+
+internal sealed class SystemdEnvironmentAcquisitionSession : IAsyncDisposable
+{
+    private ISystemdDbusTransport? _transport;
+    private readonly ISystemdSourceFileAccess _files;
+    private readonly ResolvedSystemdService _resolved;
+    private readonly SystemServiceId _requested;
+    private readonly SystemdEnvironmentProperties _initial;
+    private LoadedEnvironmentResult.Success? _manager;
+    private readonly List<SystemdFileObservation> _configuration;
+    private readonly List<SystemdFileObservation> _fileObservations;
+    private readonly Action<SystemdEnvironmentReadStage>? _stageObserver;
+    private bool _snapshotTaken;
+    private bool _closed;
+
+    internal SystemdEnvironmentAcquisitionSession(
+        ISystemdDbusTransport transport,
+        ISystemdSourceFileAccess files,
+        ResolvedSystemdService resolved,
+        SystemServiceId requested,
+        SystemdEnvironmentProperties initial,
+        LoadedEnvironmentResult.Success manager,
+        List<SystemdFileObservation> configuration,
+        List<SystemdFileObservation> fileObservations,
+        Action<SystemdEnvironmentReadStage>? stageObserver)
+    {
+        _transport = transport;
+        _files = files;
+        _resolved = resolved;
+        _requested = requested;
+        _initial = initial;
+        _manager = manager;
+        _configuration = configuration;
+        _fileObservations = fileObservations;
+        _stageObserver = stageObserver;
+    }
+
+    internal SystemdEnvironmentSourceReadResult.Success TakeSnapshot()
+    {
+        ObjectDisposedException.ThrowIf(_closed, this);
+        if (_snapshotTaken)
+            throw new InvalidOperationException("The acquired source snapshot was already transferred.");
+
+        var manager = _manager ?? throw new InvalidOperationException("The acquisition has no manager source.");
+        var published = new List<SystemdEnvironmentFileSource>(_fileObservations.Count);
+        try
         {
-            var manager = Manager ?? throw new InvalidOperationException("The candidate has no manager source.");
-            var published = new List<SystemdEnvironmentFileSource>(Files.Count);
+            for (var index = 0; index < _fileObservations.Count; index++)
+            {
+                var observation = _fileObservations[index];
+                published.Add(new SystemdEnvironmentFileSource(
+                    index + 1, _initial.EnvironmentFiles[index].IgnoreErrors,
+                    observation.IsMissing,
+                    observation.IsMissing ? null : observation.TakeContent()));
+            }
+            var snapshot = new SystemdEnvironmentSourceReadResult.Success(
+                _resolved.Identity.Id, manager, published);
+            _manager = null;
+            published.Clear();
+            _snapshotTaken = true;
+            return snapshot;
+        }
+        finally
+        {
+            foreach (var source in published)
+                source.Dispose();
+        }
+    }
+
+    internal async Task<SystemdEnvironmentSourceReadResult.Failure?> ValidateAsync(
+        SystemdEnvironmentOperationContext operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        ObjectDisposedException.ThrowIf(_closed, this);
+        ObserveStage(SystemdEnvironmentReadStage.BeforeFinalValidation, operation);
+        try
+        {
+            SystemdEnvironmentProperties final;
             try
             {
-                for (var index = 0; index < Files.Count; index++)
-                {
-                    var observation = Files[index];
-                    published.Add(new SystemdEnvironmentFileSource(
-                        index + 1,
-                        declarations[index].IgnoreErrors,
-                        observation.IsMissing,
-                        observation.IsMissing ? null : observation.TakeContent()));
-                }
-
-                var result = new SystemdEnvironmentSourceReadResult.Success(canonicalId, manager, published);
-                Manager = null;
-                published.Clear();
-                return result;
+                final = await _transport!.ReadEnvironmentPropertiesAsync(
+                        _resolved.Unit, operation.Token)
+                    .ConfigureAwait(false);
+                operation.ThrowIfStopped();
             }
-            finally
+            catch (SystemdDbusException exception) when (
+                SystemdEnvironmentSourceReader.IsDisappearance(exception) ||
+                SystemdEnvironmentSourceReader.IsMissingRequiredProperty(exception) ||
+                exception.FailureKind is SystemdDbusFailureKind.MalformedReply or
+                    SystemdDbusFailureKind.IncompatibleReply)
             {
-                foreach (var source in published)
-                    source.Dispose();
+                return operation.Prefer(SystemdEnvironmentSourceReader.Failure(
+                    EnvironmentReadFailureCode.InconsistentSnapshot));
             }
+
+            if (!SystemdEnvironmentSourceReader.PropertiesEqual(_initial, final))
+                return operation.Prefer(SystemdEnvironmentSourceReader.Failure(
+                    EnvironmentReadFailureCode.InconsistentSnapshot));
+            foreach (var observation in _configuration.Concat(_fileObservations))
+            {
+                if (!await _files.IsStableAsync(observation, operation.Token).ConfigureAwait(false))
+                    return operation.Prefer(SystemdEnvironmentSourceReader.Failure(
+                        EnvironmentReadFailureCode.InconsistentSnapshot));
+                operation.ThrowIfStopped();
+            }
+
+            var identityFailure = SystemdEnvironmentSourceReader.ValidateInitial(
+                final, _resolved.Identity, _requested);
+            return identityFailure is null ? null : operation.Prefer(identityFailure);
+        }
+        catch (OperationCanceledException) when (operation.CallerCancellation.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(operation.CallerCancellation);
+        }
+        catch (OperationCanceledException) when (operation.HasExpired)
+        {
+            return operation.Prefer(SystemdEnvironmentSourceReader.Failure(
+                EnvironmentReadFailureCode.Timeout));
+        }
+        catch (SystemdSourceFileException exception)
+        {
+            return operation.Prefer(SystemdEnvironmentSourceReader.MapFileFailure(
+                exception.Failure, sourceId: null));
+        }
+        catch (SystemdDbusException exception) when (
+            exception.FailureKind == SystemdDbusFailureKind.Timeout && operation.HasExpired)
+        {
+            return operation.Prefer(SystemdEnvironmentSourceReader.Failure(
+                EnvironmentReadFailureCode.Timeout));
+        }
+        catch (SystemdDbusException)
+        {
+            return operation.Prefer(SystemdEnvironmentSourceReader.Failure(
+                EnvironmentReadFailureCode.TransportError));
+        }
+    }
+
+    internal async ValueTask<SystemdEnvironmentSourceReadResult.Failure?> CloseAsync(
+        SystemdEnvironmentOperationContext operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        if (_closed)
+            return null;
+        _stageObserver?.Invoke(SystemdEnvironmentReadStage.BeforeCleanup);
+
+        Exception? cleanupFailure = null;
+        for (var index = _fileObservations.Count - 1; index >= 0; index--)
+        {
+            try { _fileObservations[index].Dispose(); }
+            catch (Exception exception) when (SystemdEnvironmentSourceReader.IsExpectedCleanupFailure(exception))
+            { cleanupFailure ??= exception; }
+        }
+        for (var index = _configuration.Count - 1; index >= 0; index--)
+        {
+            try { _configuration[index].Dispose(); }
+            catch (Exception exception) when (SystemdEnvironmentSourceReader.IsExpectedCleanupFailure(exception))
+            { cleanupFailure ??= exception; }
+        }
+        _manager?.Dispose();
+        _manager = null;
+
+        var transport = _transport;
+        _transport = null;
+        if (transport is not null)
+        {
+            try { await transport.DisposeAsync().ConfigureAwait(false); }
+            catch (Exception exception) when (SystemdEnvironmentSourceReader.IsExpectedCleanupFailure(exception))
+            { cleanupFailure ??= exception; }
         }
 
-        public void Dispose()
+        _closed = true;
+        operation.CallerCancellation.ThrowIfCancellationRequested();
+        if (operation.HasExpired)
+            return SystemdEnvironmentSourceReader.Failure(EnvironmentReadFailureCode.Timeout);
+        return cleanupFailure is null
+            ? null
+            : SystemdEnvironmentSourceReader.Failure(EnvironmentReadFailureCode.TransportError);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_closed)
+            return;
+        for (var index = _fileObservations.Count - 1; index >= 0; index--)
+            _fileObservations[index].Dispose();
+        for (var index = _configuration.Count - 1; index >= 0; index--)
+            _configuration[index].Dispose();
+        _manager?.Dispose();
+        _manager = null;
+        var transport = _transport;
+        _transport = null;
+        _closed = true;
+        if (transport is not null)
         {
-            for (var index = Files.Count - 1; index >= 0; index--)
-                Files[index].Dispose();
-            for (var index = Configuration.Count - 1; index >= 0; index--)
-                Configuration[index].Dispose();
-            Manager?.Dispose();
+            try { await transport.DisposeAsync().ConfigureAwait(false); }
+            catch (Exception exception) when (SystemdEnvironmentSourceReader.IsExpectedCleanupFailure(exception))
+            {
+                // Best-effort fallback only; successful publication always uses CloseAsync first.
+            }
         }
+    }
+
+    private void ObserveStage(
+        SystemdEnvironmentReadStage stage, SystemdEnvironmentOperationContext operation)
+    {
+        operation.ThrowIfStopped();
+        _stageObserver?.Invoke(stage);
+        operation.ThrowIfStopped();
     }
 }

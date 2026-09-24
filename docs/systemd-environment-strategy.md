@@ -9,9 +9,10 @@ Issue: [#34](https://github.com/AdamJachocki/Serval/issues/34)
 One read accepts only `SystemServiceId` and `CancellationToken` through
 `ISystemServiceEnvironmentReader.ReadAsync`. Application contracts live in
 `Serval.Application`; existing service identity remains in `Serval.Domain`.
-All future D-Bus, parsing, file access and composition stay in `Serval.Systemd`.
-M2.1 introduces no adapter, endpoint, IPC, ACL, database, parser or root operation.
-The library is reserved for the future Agent; never register it in Web.
+All D-Bus, parsing, file access, composition and application-contract adaptation
+stay in `Serval.Systemd`. The library is reserved for the future Agent; never
+register it in Web. It introduces no endpoint, IPC, ACL, database, public reveal
+operation or new root capability.
 
 `SupportedDeclarations` means the complete result of the manager-loaded
 `Environment` property plus current contents of its declared `EnvironmentFiles`.
@@ -315,11 +316,11 @@ real-systemd harness. The supported CI jobs exercise the harness on systemd 249,
 environment-specific and does not substitute for that matrix.
 
 This is still only a bounded optimistic observation. It cannot establish an
-atomic system-wide snapshot or predict a future service start. M2.5 does not parse
-file contents, compose effective values, implement the application reader, expose
-IPC, authenticate or authorize a caller, write configuration, reload systemd, or
-perform lifecycle actions. Those remain separate changes with their own trust-
-boundary requirements.
+atomic system-wide snapshot or predict a future service start. The M2.5 component
+does not parse file contents or compose effective values; M2.7 orchestrates it
+through the application reader. Neither layer exposes IPC, authenticates or
+authorizes a caller, writes configuration, reloads systemd, or performs lifecycle
+actions. Those remain separate changes with their own trust-boundary requirements.
 
 ### M2.6 environment-composition implementation
 
@@ -341,12 +342,73 @@ and compares synthetic winners with the manager-observed process environment. Th
 same harness is configured for the supported systemd 249, 255, 257, and 259 CI
 baselines; local systemd 255 evidence does not substitute for that CI matrix.
 
-M2.6 remains an unused internal mechanism. Issue #40 must perform acquisition and
+M2.6 remains an internal mechanism. M2.7 performs acquisition and
 decreasing-allowance parsing before invoking it under the shared operation
-deadline. No application reader, Web integration, IPC operation, or Agent
-authorization is added here. A future Agent exposure must still authenticate and
-authorize the exact reveal operation and enforce protected-service policy before
-any value-bearing read.
+deadline. No Web integration, IPC operation, or Agent authorization is added.
+A future Agent exposure must still authenticate and authorize the exact reveal
+operation and enforce protected-service policy before any value-bearing read.
+
+### M2.7 application-reader integration
+
+`SystemdServiceEnvironmentReader` implements `ISystemServiceEnvironmentReader`
+and is the production application adapter. Its public construction fixes the
+typed system-manager transport and safe Linux file-access implementations.
+Internal test construction changes dependencies and instrumentation only; every
+path still enters the same concrete-identifier validation, canonical/alias
+resolution, protected-service and Serval privileged-family pipeline before any
+value-bearing property or source-content access. The existing internal
+`SystemdEnvironmentSourceReader.ReadAsync` compatibility path is a wrapper over
+that acquisition pipeline, not an alternate policy implementation.
+
+One internal operation context starts after basic argument validation and owns
+the original caller token, one linked cancellation source, a monotonic start
+timestamp and the fixed five-second budget. The transport receives only the
+remaining allowance. Parsing receives the same linked token and no timer of its
+own. Monotonic elapsed checks at controlled exits and immediately before
+publication reject a late result even when timer callback delivery is delayed.
+Caller cancellation is checked first and is rethrown with the original caller
+token. Timeout therefore cannot hide observed caller cancellation. This remains
+a managed deadline: synchronous Linux syscalls are checked immediately before
+and after, but cannot be interrupted while blocked in the kernel.
+
+Acquisition returns an internal disposable session. The session retains the
+typed transport, initial manager properties, configuration observations and
+file handles through parsing and composition. Raw source buffers transfer into
+the source snapshot separately, so parser/composer disposal may clear those
+buffers without invalidating the retained handle and path-binding observations.
+The adapter parses present occurrences in declaration order using the decreasing
+assignment allowance, composes a provisional application result, validates the
+retained observations, closes the acquisition resources, and performs one final
+cancellation/deadline check before returning it. Optional missing occurrences
+remain null parser slots with ordered metadata and are rechecked for continued
+absence.
+
+The adapter owns every parser candidate, source snapshot and provisional result
+until ownership is explicitly transferred by a successful return. Parser,
+composer, final-validation, cleanup, cancellation and timeout exits clear and
+dispose unpublished secret storage. A cleanup failure prevents publication but
+does not replace an earlier controlled failure with raw diagnostics. After a
+successful return, the consumer must dispose `ServiceEnvironmentReadResult.Success`;
+its value-free metadata remains usable after value disposal. There is no cache,
+persistence or shared per-service state, so concurrent reads and repeated reads
+acquire independent current observations.
+
+The collision-checked real-systemd harness invokes this application adapter for
+manager/file precedence, repeated occurrences, resets, optional and required
+absence, aliases, instances, empty declarations, protected targets and unsupported
+configuration. Generated values remain private, fixtures are removed, and
+non-test sources are compared or otherwise left unchanged. GitHub Actions runs
+the integrated harness for systemd 249, 255, 257 and 259 across the supported x64
+and ARM64 jobs. A local Linux or WSL pass is evidence only for that environment,
+not proof that the complete CI matrix passed.
+
+No Web or Agent registration, inventory behavior change, endpoint, authorization
+decision, audit sink, cache, persistence, source mutation, daemon reload or
+lifecycle action is part of M2.7. Before any future Agent caller invokes this
+value-bearing library, it must authenticate the IPC peer, establish trustworthy
+delegation, authorize both the exact service view and environment reveal, and
+enforce protected-target policy at the privileged boundary. Caller-supplied roles
+or authorization flags are not evidence.
 
 Semantics reference: [systemd.exec](https://raw.githubusercontent.com/systemd/systemd/main/man/systemd.exec.xml),
 [systemd.unit](https://raw.githubusercontent.com/systemd/systemd/main/man/systemd.unit.xml),
