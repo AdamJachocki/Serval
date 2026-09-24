@@ -49,6 +49,9 @@ public sealed class RealSystemdDbusTransportTests
         var properties = await transport.ReadUnitPropertiesAsync(
             namedUnit.Unit,
             TestContext.Current.CancellationToken);
+        var environment = await transport.ReadEnvironmentPropertiesAsync(
+            namedUnit.Unit,
+            TestContext.Current.CancellationToken);
 
         Assert.Equal(loadedUnit.Name, namedUnit.Name);
         Assert.Equal(namedUnit.Name, properties.Id);
@@ -56,5 +59,8 @@ public sealed class RealSystemdDbusTransportTests
         Assert.NotEmpty(properties.LoadState);
         Assert.NotEmpty(properties.ActiveState);
         Assert.NotEmpty(properties.SubState);
+        Assert.Equal(properties.Id, environment.Id);
+        Assert.Equal(properties.Names, environment.Names);
+        Assert.NotEmpty(environment.LoadState);
     }
 }

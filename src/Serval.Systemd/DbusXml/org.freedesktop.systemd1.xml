@@ -22,5 +22,16 @@
     <property name="LoadState" type="s" access="read" />
     <property name="ActiveState" type="s" access="read" />
     <property name="SubState" type="s" access="read" />
+    <property name="FragmentPath" type="s" access="read" />
+    <property name="DropInPaths" type="as" access="read" />
+    <property name="NeedDaemonReload" type="b" access="read" />
+    <property name="Transient" type="b" access="read" />
+    <property name="UnitFileState" type="s" access="read" />
+  </interface>
+  <interface name="org.freedesktop.systemd1.Service">
+    <property name="Environment" type="as" access="read" />
+    <property name="EnvironmentFiles" type="a(sb)" access="read" />
+    <property name="UnsetEnvironment" type="as" access="read" />
+    <property name="PassEnvironment" type="as" access="read" />
   </interface>
 </node>

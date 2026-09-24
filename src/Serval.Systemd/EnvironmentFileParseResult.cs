@@ -9,19 +9,22 @@ internal abstract class EnvironmentFileParseResult
 
     internal sealed class Success : EnvironmentFileParseResult, IDisposable
     {
-        internal Success(EnvironmentValues values, IReadOnlyList<EnvironmentVariableMetadata> variables,
-            int sourceBytes, int assignments)
+        internal Success(int sourceId, EnvironmentValues values,
+            IReadOnlyList<EnvironmentVariableMetadata> variables, int sourceBytes, int assignments)
         {
+            ArgumentOutOfRangeException.ThrowIfLessThan(sourceId, 1);
             ArgumentNullException.ThrowIfNull(values);
             ArgumentNullException.ThrowIfNull(variables);
             ArgumentOutOfRangeException.ThrowIfNegative(sourceBytes);
             ArgumentOutOfRangeException.ThrowIfNegative(assignments);
+            SourceId = sourceId;
             Values = values;
             Variables = variables;
             SourceBytes = sourceBytes;
             Assignments = assignments;
         }
 
+        public int SourceId { get; }
         internal EnvironmentValues Values { get; }
         public IReadOnlyList<EnvironmentVariableMetadata> Variables { get; }
         public int SourceBytes { get; }

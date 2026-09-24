@@ -104,6 +104,41 @@ internal sealed class TmdsSystemdDbusProtocol : ISystemdDbusProtocol
             subState);
     }
 
+    public async Task<ProtocolEnvironmentProperties> ReadEnvironmentPropertiesAsync(
+        string objectPath,
+        CancellationToken cancellationToken)
+    {
+        var path = new ObjectPath(objectPath);
+        var unit = new Unit(_connection, SystemdDestination, path);
+        var service = new Service(_connection, SystemdDestination, path);
+        var id = await InvokeAsync(unit.GetIdAsync, cancellationToken).ConfigureAwait(false);
+        var names = await InvokeAsync(unit.GetNamesAsync, cancellationToken).ConfigureAwait(false);
+        var loadState = await InvokeAsync(unit.GetLoadStateAsync, cancellationToken).ConfigureAwait(false);
+        var fragmentPath = await InvokeAsync(unit.GetFragmentPathAsync, cancellationToken).ConfigureAwait(false);
+        var dropInPaths = await InvokeAsync(unit.GetDropInPathsAsync, cancellationToken).ConfigureAwait(false);
+        var needDaemonReload = await InvokeAsync(unit.GetNeedDaemonReloadAsync, cancellationToken).ConfigureAwait(false);
+        var transient = await InvokeAsync(unit.GetTransientAsync, cancellationToken).ConfigureAwait(false);
+        var unitFileState = await InvokeAsync(unit.GetUnitFileStateAsync, cancellationToken).ConfigureAwait(false);
+        var environment = await InvokeAsync(service.GetEnvironmentAsync, cancellationToken).ConfigureAwait(false);
+        var environmentFiles = await InvokeAsync(service.GetEnvironmentFilesAsync, cancellationToken).ConfigureAwait(false);
+        var unsetEnvironment = await InvokeAsync(service.GetUnsetEnvironmentAsync, cancellationToken).ConfigureAwait(false);
+        var passEnvironment = await InvokeAsync(service.GetPassEnvironmentAsync, cancellationToken).ConfigureAwait(false);
+
+        return new ProtocolEnvironmentProperties(
+            id,
+            names,
+            loadState,
+            fragmentPath,
+            dropInPaths,
+            needDaemonReload,
+            transient,
+            unitFileState,
+            environment,
+            environmentFiles.Select(entry => new ProtocolEnvironmentFile(entry.Item1, entry.Item2)).ToArray(),
+            unsetEnvironment,
+            passEnvironment);
+    }
+
     public ValueTask DisposeAsync()
     {
         if (!_disposed)
@@ -159,6 +194,11 @@ internal sealed class TmdsSystemdDbusProtocol : ISystemdDbusProtocol
                 SystemdDbusProtocolFailureKind.RemoteError,
                 exception.ErrorName);
         }
+        catch (DBusReplyLimitException)
+        {
+            throw new SystemdDbusProtocolException(
+                SystemdDbusProtocolFailureKind.LimitExceeded);
+        }
         catch (DBusUnexpectedValueException)
         {
             throw new SystemdDbusProtocolException(
@@ -192,6 +232,11 @@ internal sealed class TmdsSystemdDbusProtocol : ISystemdDbusProtocol
             throw new SystemdDbusProtocolException(
                 SystemdDbusProtocolFailureKind.RemoteError,
                 exception.ErrorName);
+        }
+        catch (DBusReplyLimitException)
+        {
+            throw new SystemdDbusProtocolException(
+                SystemdDbusProtocolFailureKind.LimitExceeded);
         }
         catch (DBusUnexpectedValueException)
         {

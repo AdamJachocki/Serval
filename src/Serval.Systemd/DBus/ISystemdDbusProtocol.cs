@@ -18,6 +18,10 @@ internal interface ISystemdDbusProtocol : IAsyncDisposable
     Task<ProtocolUnitProperties> ReadUnitPropertiesAsync(
         string objectPath,
         CancellationToken cancellationToken);
+
+    Task<ProtocolEnvironmentProperties> ReadEnvironmentPropertiesAsync(
+        string objectPath,
+        CancellationToken cancellationToken);
 }
 
 internal sealed record ProtocolUnitFileEntry(string Path, string State);
@@ -39,11 +43,28 @@ internal sealed record ProtocolUnitProperties(
     string ActiveState,
     string SubState);
 
+internal sealed record ProtocolEnvironmentFile(string Path, bool IgnoreErrors);
+
+internal sealed record ProtocolEnvironmentProperties(
+    string Id,
+    string[] Names,
+    string LoadState,
+    string FragmentPath,
+    string[] DropInPaths,
+    bool NeedDaemonReload,
+    bool Transient,
+    string UnitFileState,
+    string[] Environment,
+    ProtocolEnvironmentFile[] EnvironmentFiles,
+    string[] UnsetEnvironment,
+    string[] PassEnvironment);
+
 internal enum SystemdDbusProtocolFailureKind
 {
     Unavailable,
     RemoteError,
     IncompatibleReply,
+    LimitExceeded,
 }
 
 internal sealed class SystemdDbusProtocolException : Exception

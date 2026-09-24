@@ -454,6 +454,11 @@ public sealed class SystemdServiceEnumeratorTests
             return Task.FromResult(Read?.Invoke(key) ?? Properties.GetValueOrDefault(key) ?? SystemdServiceEnumeratorTests.Properties(key));
         }
 
+        public Task<ProtocolEnvironmentProperties> ReadEnvironmentPropertiesAsync(
+            string objectPath,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("Enumeration must not read environment properties.");
+
         public ValueTask DisposeAsync() { Disposed = true; return ValueTask.CompletedTask; }
     }
 

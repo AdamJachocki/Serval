@@ -29,17 +29,31 @@ When intentionally changing a NuGet dependency, run `dotnet restore` without `--
 
 Before modifying repository files for an issue or feature:
 
-1. Fetch the latest remote state:
+1. Check the current branch and worktree. Preserve unrelated changes; do not
+   switch branches if doing so would carry them into the new work.
+2. Update the local `main` from `origin/main`:
 
 ```bash
-git fetch origin
+git switch main
+git pull --ff-only origin main
 ```
-2. Create a dedicated branch from the latest origin/develop:
+3. Create and switch to a dedicated branch from the updated local `main`,
+   without inheriting `origin/main` as its upstream:
+
 ```bash
-git switch -c <branch-name> origin/develop
+git switch --no-track -c <branch-name> main
 ```
-Do not start implementation directly on develop or main.
-Do not discard or overwrite unrelated local changes in order to switch branches.
+4. Confirm that the new branch is checked out and does not track `origin/main`
+   before editing (`git branch -vv`). Remain on the new branch throughout the
+   implementation. If an existing feature branch tracks `origin/main`, stop and
+   correct its upstream before continuing.
+
+Do not implement directly on `main`. Do not discard or overwrite unrelated
+local changes to switch branches. The first publication of a new branch must
+explicitly target its same-named remote branch, for example
+`git push -u origin <branch-name>`; subsequent plain `git push` calls can then
+use that upstream. Creating a branch or implementing an issue does not itself
+authorize a push.
 
 ## Change expectations
 

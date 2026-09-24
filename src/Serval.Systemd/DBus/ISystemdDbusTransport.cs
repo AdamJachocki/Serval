@@ -19,6 +19,10 @@ internal interface ISystemdDbusTransport : IAsyncDisposable
     Task<SystemdUnitProperties> ReadUnitPropertiesAsync(
         SystemdUnitReference unit,
         CancellationToken cancellationToken);
+
+    Task<SystemdEnvironmentProperties> ReadEnvironmentPropertiesAsync(
+        SystemdUnitReference unit,
+        CancellationToken cancellationToken);
 }
 
 internal sealed record SystemdUnitFileEntry
@@ -106,3 +110,19 @@ internal sealed class SystemdUnitReference
     {
     }
 }
+
+internal sealed record SystemdEnvironmentFile(string Path, bool IgnoreErrors);
+
+internal sealed record SystemdEnvironmentProperties(
+    string Id,
+    IReadOnlyList<string> Names,
+    string LoadState,
+    string FragmentPath,
+    IReadOnlyList<string> DropInPaths,
+    bool NeedDaemonReload,
+    bool Transient,
+    string UnitFileState,
+    IReadOnlyList<string> Environment,
+    IReadOnlyList<SystemdEnvironmentFile> EnvironmentFiles,
+    IReadOnlyList<string> UnsetEnvironment,
+    IReadOnlyList<string> PassEnvironment);
