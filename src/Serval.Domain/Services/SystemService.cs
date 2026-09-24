@@ -10,7 +10,8 @@ public sealed record SystemService
         string description,
         SystemdLoadState loadState,
         SystemdActiveState activeState,
-        SystemdSubState subState)
+        SystemdSubState subState,
+        bool isProtected = false)
     {
         ArgumentNullException.ThrowIfNull(id);
         ArgumentNullException.ThrowIfNull(description);
@@ -23,6 +24,7 @@ public sealed record SystemService
         LoadState = loadState;
         ActiveState = activeState;
         SubState = subState;
+        IsProtected = isProtected;
     }
 
     public SystemServiceId Id { get; }
@@ -34,4 +36,9 @@ public sealed record SystemService
     public SystemdActiveState ActiveState { get; }
 
     public SystemdSubState SubState { get; }
+
+    /// <summary>
+    /// Indicates that normal Serval permissions must not expose or manage this service.
+    /// </summary>
+    public bool IsProtected { get; }
 }

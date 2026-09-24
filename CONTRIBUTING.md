@@ -21,15 +21,44 @@ Restore and validate the repository with:
 dotnet restore --locked-mode
 dotnet format Serval.slnx --verify-no-changes --no-restore
 dotnet build Serval.slnx --configuration Release --no-restore
-dotnet test Serval.slnx --configuration Release --no-build --no-restore
 ```
 
 When intentionally changing a NuGet dependency, run `dotnet restore` without `--locked-mode`, review every resulting lock-file change, and commit it with the project changes.
 
+## Branch workflow
+
+Before modifying repository files for an issue or feature:
+
+1. Check the current branch and worktree. Preserve unrelated changes; do not
+   switch branches if doing so would carry them into the new work.
+2. Update the local `main` from `origin/main`:
+
+```bash
+git switch main
+git pull --ff-only origin main
+```
+3. Create and switch to a dedicated branch from the updated local `main`,
+   without inheriting `origin/main` as its upstream:
+
+```bash
+git switch --no-track -c <branch-name> main
+```
+4. Confirm that the new branch is checked out and does not track `origin/main`
+   before editing (`git branch -vv`). Remain on the new branch throughout the
+   implementation. If an existing feature branch tracks `origin/main`, stop and
+   correct its upstream before continuing.
+
+Do not implement directly on `main`. Do not discard or overwrite unrelated
+local changes to switch branches. The first publication of a new branch must
+explicitly target its same-named remote branch, for example
+`git push -u origin <branch-name>`; subsequent plain `git push` calls can then
+use that upstream. Creating a branch or implementing an issue does not itself
+authorize a push.
+
 ## Change expectations
 
 - Keep pull requests focused and explain the security impact.
-- Preserve the dependency direction documented in [`docs/architecture.md`](docs/architecture.md).
+- Preserve the dependency direction documented in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 - Do not add speculative abstractions, packages, or project references.
 - Treat all environment-variable values and credentials as secrets. Never place them in source, test output, snapshots, logs, exceptions, telemetry, SQLite, issues, or pull requests.
 - Add tests that demonstrate meaningful behavior. Security-sensitive and privileged changes require permitted and denied paths plus applicable malicious-input cases.

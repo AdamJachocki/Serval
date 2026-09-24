@@ -12,6 +12,10 @@ You are a reviewer, not an implementation agent.
 
 ## Review timing and context isolation
 
+Every code-review agent must be launched with model `gpt-5.6-sol` and
+`reasoning_effort: "medium"`, explicitly set by the invoking agent for each
+review iteration.
+
 A review is performed after a coherent implementation batch is complete, not
 after every individual file write.
 
@@ -47,6 +51,19 @@ repository state, identify the ambiguity in the review rather than guessing.
 Review the actual change, not merely a description of it. Read enough
 surrounding code and configuration to understand the implications of the diff.
 
+## Context-efficient inspection
+
+Start with status, changed-file names, and a diff summary, then inspect the
+actual diff before opening surrounding code. Search by exact symbol or filename
+and request focused line ranges. Avoid broad repository-wide regular expressions,
+complete dumps of multiple large files, generated outputs, build artifacts, and
+large static assets unless a specific review concern requires them. Keep each
+tool result to the smallest practical size, normally at most 8,000 tokens.
+
+Do not rerun quality gates merely to duplicate passed evidence established for
+the same implementation state. Run a focused check when evidence is missing,
+the diff creates a specific concern, or independent reproduction is needed.
+
 ## Reviewer behavior
 
 You are read-only with respect to the implementation.
@@ -80,7 +97,7 @@ is correct, secure, or architecturally compliant.
    Web-to-Agent IPC, Unix Domain Sockets, PAM, protected services, privileged
    authorization, privileged mutations, or new root capabilities.
 5. Load both skills when both scopes apply.
-6. Inspect the diff and enough surrounding code to evaluate the priorities
+6. Inspect the diff and only the surrounding code needed to evaluate the priorities
    below.
 7. Return only actionable findings caused or exposed by the reviewed change to
    the invoking implementation agent.

@@ -192,6 +192,59 @@ internal sealed class SystemdDbusTransport : ISystemdDbusTransport
             cancellationToken);
     }
 
+    public Task<SystemdEnvironmentProperties> ReadEnvironmentPropertiesAsync(
+        SystemdUnitReference unit,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(unit);
+        if (!_issuedUnits.TryGetValue(unit, out var objectPath))
+            throw new ArgumentException("The unit reference was not issued by this transport.", nameof(unit));
+
+        return ExecuteAsync(
+            async token =>
+            {
+                var properties = await _protocol.ReadEnvironmentPropertiesAsync(objectPath, token)
+                    .ConfigureAwait(false);
+                EnsureReplyValue(properties);
+                ValidateArray(properties.Names);
+                ValidateArray(properties.DropInPaths, EnvironmentReadLimits.MaxConfigurationPaths);
+                ValidateArray(properties.Environment, EnvironmentReadLimits.MaxAssignments + 1);
+                ValidateArray(properties.EnvironmentFiles, EnvironmentReadLimits.MaxSources);
+                ValidateArray(properties.UnsetEnvironment, EnvironmentReadLimits.MaxAssignments);
+                ValidateArray(properties.PassEnvironment, EnvironmentReadLimits.MaxAssignments);
+                if (properties.Names.Length == 0)
+                    throw new MalformedReplyException();
+
+                return new SystemdEnvironmentProperties(
+                    ValidateUnitName(properties.Id),
+                    Array.AsReadOnly(properties.Names.Select(ValidateUnitName).ToArray()),
+                    ValidateString(properties.LoadState, MaximumStateLength, allowEmpty: false),
+                    ValidateString(properties.FragmentPath, MaximumPathLength + 1, allowEmpty: true),
+                    Array.AsReadOnly(properties.DropInPaths
+                        .Select(path => ValidateString(path, MaximumPathLength + 1, allowEmpty: false)).ToArray()),
+                    properties.NeedDaemonReload,
+                    properties.Transient,
+                    ValidateString(properties.UnitFileState, MaximumStateLength, allowEmpty: false),
+                    Array.AsReadOnly(properties.Environment
+                        .Select(entry => ValidateString(entry, EnvironmentReadLimits.MaxLogicalRecordBytes + 1, allowEmpty: false))
+                        .ToArray()),
+                    Array.AsReadOnly(properties.EnvironmentFiles.Select(file =>
+                    {
+                        EnsureReplyValue(file);
+                        return new SystemdEnvironmentFile(
+                            ValidateString(file.Path, MaximumPathLength + 1, allowEmpty: false),
+                            file.IgnoreErrors);
+                    }).ToArray()),
+                    Array.AsReadOnly(properties.UnsetEnvironment
+                        .Select(entry => ValidateString(entry, EnvironmentReadLimits.MaxLogicalRecordBytes, allowEmpty: false))
+                        .ToArray()),
+                    Array.AsReadOnly(properties.PassEnvironment
+                        .Select(entry => ValidateString(entry, EnvironmentReadLimits.MaxLogicalRecordBytes, allowEmpty: false))
+                        .ToArray()));
+            },
+            cancellationToken);
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_disposed)
@@ -348,9 +401,11 @@ internal sealed class SystemdDbusTransport : ISystemdDbusTransport
         return value;
     }
 
-    private static void ValidateArray<T>(T[]? entries)
+    private static void ValidateArray<T>(T[]? entries) => ValidateArray(entries, MaximumBatchSize);
+
+    private static void ValidateArray<T>(T[]? entries, int maximumCount)
     {
-        if (entries is null || entries.Length > MaximumBatchSize)
+        if (entries is null || entries.Length > maximumCount)
         {
             throw new MalformedReplyException();
         }
@@ -377,6 +432,8 @@ internal sealed class SystemdDbusTransport : ISystemdDbusTransport
                     SanitizeRemoteErrorName(exception.RemoteErrorName)),
             SystemdDbusProtocolFailureKind.IncompatibleReply =>
                 new SystemdDbusException(SystemdDbusFailureKind.IncompatibleReply),
+            SystemdDbusProtocolFailureKind.LimitExceeded =>
+                new SystemdDbusException(SystemdDbusFailureKind.LimitExceeded),
             _ =>
                 new SystemdDbusException(SystemdDbusFailureKind.Unavailable),
         };

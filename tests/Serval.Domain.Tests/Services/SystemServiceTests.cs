@@ -18,13 +18,15 @@ public sealed class SystemServiceTests
             "PostgreSQL database server",
             loadState,
             activeState,
-            subState);
+            subState,
+            isProtected: true);
 
         Assert.Equal(id, service.Id);
         Assert.Equal("PostgreSQL database server", service.Description);
         Assert.Equal(loadState, service.LoadState);
         Assert.Equal(activeState, service.ActiveState);
         Assert.Equal(subState, service.SubState);
+        Assert.True(service.IsProtected);
     }
 
     [Fact]
@@ -44,6 +46,21 @@ public sealed class SystemServiceTests
         var second = CreateService(new SystemServiceId("redis.service"));
 
         Assert.NotEqual(first, second);
+    }
+
+    [Fact]
+    public void ProtectionClassificationParticipatesInValueEquality()
+    {
+        var service = CreateService();
+        var protectedService = new SystemService(
+            service.Id,
+            service.Description,
+            service.LoadState,
+            service.ActiveState,
+            service.SubState,
+            isProtected: true);
+
+        Assert.NotEqual(service, protectedService);
     }
 
     [Fact]
