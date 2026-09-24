@@ -151,20 +151,25 @@ EnvironmentFileParser.cs
 EnvironmentFileParseResult.cs
 LoadedEnvironmentDecoder.cs
 EnvironmentReadLimits.cs
+SystemdEnvironmentOperationContext.cs
 SystemdEnvironmentSourceReader.cs
 SystemdEnvironmentSourceReadResult.cs
 SystemdEnvironmentComposer.cs
+SystemdServiceEnvironmentReader.cs
 SystemdSourcePath.cs
 LinuxSystemdSourceFileAccess.cs
 ```
 
 Start here for parsing environment files or decoding environment information returned by systemd.
+`SystemdServiceEnvironmentReader` is the application-facing adapter. It uses one
+`SystemdEnvironmentOperationContext` across identity/protection, acquisition,
+parsing, composition, final validation, cleanup and publication.
 `SystemdEnvironmentSourceReader` and `LinuxSystemdSourceFileAccess` form the
-internal, disposable M2.5 source-acquisition and safe Linux file boundary; they do
-not implement the application-facing environment reader or value composition.
-`SystemdEnvironmentComposer` is the internal M2.6 I/O-free composition boundary
-for complete acquired and parsed source sets; issue #40 remains responsible for
-wiring acquisition, parsing, and composition into the application-facing reader.
+internal disposable acquisition session and safe Linux file boundary; the
+session retains transport and filesystem observations while raw buffers transfer
+to parsing/composition. `SystemdEnvironmentComposer` remains the internal I/O-free
+composition boundary. The adapter is not registered in Web or Agent and exposes
+no public value-reveal operation.
 
 #### Protected services
 
@@ -269,6 +274,7 @@ tests/Serval.Systemd.Tests/
 ├── RealSystemdServiceInspectionTests.cs
 ├── RealSystemdServiceInventoryTests.cs
 ├── RealSystemdEnvironmentFileParserTests.cs
+├── RealSystemdEnvironmentSourceReaderTests.cs
 └── RealSystemdLoadedEnvironmentTests.cs
 ```
 
@@ -365,6 +371,7 @@ Start with `ci.yml` when changing build, test, integration-test, or repository q
 | D-Bus communication                  | `src/Serval.Systemd/DBus/`                                         |
 | Environment-file parsing             | `src/Serval.Systemd/EnvironmentFileParser.cs`                      |
 | Loaded systemd environment           | `src/Serval.Systemd/LoadedEnvironmentDecoder.cs`                   |
+| Application-facing environment read  | `src/Serval.Systemd/SystemdServiceEnvironmentReader.cs`            |
 | Protected service definitions        | `src/Serval.Systemd/BuiltInProtectedServices.cs`                   |
 | Web startup                          | `src/Serval.Web/Program.cs`                                        |
 | Razor UI                             | `src/Serval.Web/Pages/`                                            |

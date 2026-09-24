@@ -86,38 +86,26 @@ public sealed class RealSystemdEnvironmentSourceReaderTests
     {
         var prefix = RequiredPrefix();
         var unitName = prefix + "-source@sample.service";
+        var aliasName = prefix + "-source-alias@sample.service";
         ServiceEnvironmentReadResult.Success? composed = null;
+        ServiceEnvironmentReadResult.Success? alias = null;
         Dictionary<string, byte[]>? processEnvironment = null;
         try
         {
-            var reader = new SystemdEnvironmentSourceReader();
-            var snapshot = Assert.IsType<SystemdEnvironmentSourceReadResult.Success>(
-                await reader.ReadAsync(new SystemServiceId(unitName), TestContext.Current.CancellationToken));
-            var candidates = new EnvironmentFileParseResult.Success?[snapshot.FileSources.Count];
-            try
-            {
-                var remainingAssignments = EnvironmentReadLimits.MaxAssignments - snapshot.ManagerSource.Assignments;
-                for (var index = 0; index < snapshot.FileSources.Count; index++)
-                {
-                    var source = snapshot.FileSources[index];
-                    if (source.IsMissing)
-                        continue;
-                    candidates[index] = Assert.IsType<EnvironmentFileParseResult.Success>(
-                        EnvironmentFileParser.Parse(source.Reveal(), source.SourceId, remainingAssignments,
-                            TestContext.Current.CancellationToken));
-                    remainingAssignments -= candidates[index]!.Assignments;
-                }
-
-                composed = Assert.IsType<ServiceEnvironmentReadResult.Success>(SystemdEnvironmentComposer.Compose(
-                    snapshot, candidates, TestContext.Current.CancellationToken));
-            }
-            catch
-            {
-                foreach (var candidate in candidates)
-                    candidate?.Dispose();
-                snapshot.Dispose();
-                throw;
-            }
+            var reader = new SystemdServiceEnvironmentReader();
+            composed = Assert.IsType<ServiceEnvironmentReadResult.Success>(
+                await reader.ReadAsync(
+                    new SystemServiceId(unitName),
+                    TestContext.Current.CancellationToken));
+            alias = Assert.IsType<ServiceEnvironmentReadResult.Success>(
+                await reader.ReadAsync(
+                    new SystemServiceId(aliasName),
+                    TestContext.Current.CancellationToken));
+            Assert.Equal(unitName, alias.CanonicalServiceId.Value);
+            Assert.Equal(composed.Sources.Select(source => (source.Id, source.IsOptional, source.IsMissing)),
+                alias.Sources.Select(source => (source.Id, source.IsOptional, source.IsMissing)));
+            Assert.Equal(composed.Variables.Select(variable => (variable.Name, variable.WinningSourceId)),
+                alias.Variables.Select(variable => (variable.Name, variable.WinningSourceId)));
 
             processEnvironment = await ReadProcessEnvironmentAsync(unitName);
             foreach (var variable in composed.Variables)
@@ -151,6 +139,7 @@ public sealed class RealSystemdEnvironmentSourceReaderTests
         }
         finally
         {
+            alias?.Dispose();
             composed?.Dispose();
             if (processEnvironment is not null)
                 Clear(processEnvironment);
@@ -162,46 +151,48 @@ public sealed class RealSystemdEnvironmentSourceReaderTests
     public async Task FailsClosedForRequiredMissingUnsupportedAndProtectedTargets()
     {
         var prefix = RequiredPrefix();
-        var reader = new SystemdEnvironmentSourceReader();
+        var reader = new SystemdServiceEnvironmentReader();
 
-        var missing = Assert.IsType<SystemdEnvironmentSourceReadResult.Failure>(
+        var missing = Assert.IsType<ServiceEnvironmentReadResult.Failure>(
             await reader.ReadAsync(
                 new SystemServiceId(prefix + "-source-required-missing.service"),
                 TestContext.Current.CancellationToken));
         Assert.Equal(EnvironmentReadFailureCode.SourceUnavailable, missing.Code);
         Assert.Equal(1, missing.SourceId);
 
-        var unsupported = Assert.IsType<SystemdEnvironmentSourceReadResult.Failure>(
+        var unsupported = Assert.IsType<ServiceEnvironmentReadResult.Failure>(
             await reader.ReadAsync(
                 new SystemServiceId(prefix + "-source-unsupported.service"),
                 TestContext.Current.CancellationToken));
         Assert.Equal(EnvironmentReadFailureCode.UnsupportedConfiguration, unsupported.Code);
         Assert.Equal(EnvironmentUnsupportedReason.UnsetEnvironment, unsupported.Reason);
 
-        var protectedResult = Assert.IsType<SystemdEnvironmentSourceReadResult.Failure>(
+        var protectedResult = Assert.IsType<ServiceEnvironmentReadResult.Failure>(
             await reader.ReadAsync(
                 new SystemServiceId("systemd-journald.service"),
                 TestContext.Current.CancellationToken));
         Assert.Equal(EnvironmentReadFailureCode.ProtectedTarget, protectedResult.Code);
 
         var instanceId = prefix["serval-enumeration-test-".Length..];
-        var privilegedResult = Assert.IsType<SystemdEnvironmentSourceReadResult.Failure>(
+        var privilegedResult = Assert.IsType<ServiceEnvironmentReadResult.Failure>(
             await reader.ReadAsync(
                 new SystemServiceId("serval-agent@" + instanceId + ".service"),
                 TestContext.Current.CancellationToken));
         Assert.Equal(EnvironmentReadFailureCode.ProtectedTarget, privilegedResult.Code);
 
-        var privilegedAliasResult = Assert.IsType<SystemdEnvironmentSourceReadResult.Failure>(
+        var privilegedAliasResult = Assert.IsType<ServiceEnvironmentReadResult.Failure>(
             await reader.ReadAsync(
                 new SystemServiceId("serval-exclusion-alias@" + instanceId + ".service"),
                 TestContext.Current.CancellationToken));
         Assert.Equal(EnvironmentReadFailureCode.ProtectedTarget, privilegedAliasResult.Code);
 
-        using var lookalike = Assert.IsType<SystemdEnvironmentSourceReadResult.Success>(
+        using var lookalike = Assert.IsType<ServiceEnvironmentReadResult.Success>(
             await reader.ReadAsync(
                 new SystemServiceId("serval-agent-helper@" + instanceId + ".service"),
                 TestContext.Current.CancellationToken));
         Assert.Equal("serval-agent-helper@" + instanceId + ".service", lookalike.CanonicalServiceId.Value);
+        Assert.Single(lookalike.Sources);
+        Assert.Empty(lookalike.Variables);
     }
 
     [Fact(Skip = "Requires real systemd and disposable source-reader fixtures.", SkipUnless = nameof(IsEnabled))]
