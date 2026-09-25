@@ -33,9 +33,12 @@ Treat accepted OpenSpec artifacts as the implementation contract.
 
 Load a skill only when the current task matches its trigger.
 
-- GitHub issue implementation:
-  load `.agents/skills/serval-github-issue/SKILL.md`
-  when implementing or completing a GitHub issue by number.
+- Repository changes:
+  load `.agents/skills/serval-change-workflow/SKILL.md`
+  for every task that may change repository files and whenever any OpenSpec
+  skill is invoked, including exploratory and planning workflows. The skill
+  covers numbered GitHub issues, OpenSpec changes without issues, and changes
+  described directly by the user.
 
 - systemd:
   load `.agents/skills/serval-systemd/SKILL.md`

@@ -1,12 +1,3 @@
-# Built-in protected-service classification
-
-Issue #14 introduces internal classification, not permission enforcement. The
-inspector's Found result and each enumerated service expose IsProtected. A match
-on the canonical ID or any validated name from systemd protects the whole item,
-including aliases merged during enumeration. No names are inferred from paths,
-descriptions, or FollowedUnit. Matching is ordinal, case-sensitive and independent
-of locale, alias order, duplicates, service state, and installation state.
-
 ## Initial curated set
 
 These are deliberate conservative defaults for critical infrastructure, not an

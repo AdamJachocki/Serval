@@ -5,29 +5,16 @@ Thank you for helping build Serval. Contributions are expected to meet productio
 ## Before you start
 
 1. Read [`AGENTS.md`](AGENTS.md) in full.
-2. Check the relevant issue and keep the change within its stated scope.
-3. Load and follow every project-specific skill required by `AGENTS.md` before working across a sensitive boundary.
+2. Establish the task scope from the relevant issue, OpenSpec change, or direct
+   user request.
+3. Load and follow skills required by task before working especially across a sensitive boundary.
 4. Report vulnerabilities privately according to [`SECURITY.md`](SECURITY.md); do not disclose them in a public issue.
 
 Do not weaken a security invariant to simplify implementation. If a proposed change requires a new privileged capability, its minimal contract, trust basis, threats, failure behavior, and negative tests must be designed before implementation.
 
-## Development setup
-
-Install a compatible .NET 10 SDK. The repository's [`global.json`](global.json) selects the baseline SDK while permitting compatible .NET 10 servicing and feature-band updates.
-
-Restore and validate the repository with:
-
-```bash
-dotnet restore --locked-mode
-dotnet format Serval.slnx --verify-no-changes --no-restore
-dotnet build Serval.slnx --configuration Release --no-restore
-```
-
-When intentionally changing a NuGet dependency, run `dotnet restore` without `--locked-mode`, review every resulting lock-file change, and commit it with the project changes.
-
 ## Branch workflow
 
-Before modifying repository files for an issue or feature:
+Before modifying any file:
 
 1. Check the current branch and worktree. Preserve unrelated changes; do not
    switch branches if doing so would carry them into the new work.
@@ -35,25 +22,20 @@ Before modifying repository files for an issue or feature:
 
 ```bash
 git switch main
-git pull --ff-only origin main
+git pull
 ```
 3. Create and switch to a dedicated branch from the updated local `main`,
    without inheriting `origin/main` as its upstream:
 
 ```bash
-git switch --no-track -c <branch-name> main
+git checkout -b <branch-name>
 ```
-4. Confirm that the new branch is checked out and does not track `origin/main`
-   before editing (`git branch -vv`). Remain on the new branch throughout the
+4. Remain on the new branch throughout the
    implementation. If an existing feature branch tracks `origin/main`, stop and
    correct its upstream before continuing.
 
 Do not implement directly on `main`. Do not discard or overwrite unrelated
-local changes to switch branches. The first publication of a new branch must
-explicitly target its same-named remote branch, for example
-`git push -u origin <branch-name>`; subsequent plain `git push` calls can then
-use that upstream. Creating a branch or implementing an issue does not itself
-authorize a push.
+local changes to switch branches.
 
 ## Change expectations
 
