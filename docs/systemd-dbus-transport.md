@@ -6,9 +6,7 @@ Issue: [#10](https://github.com/AdamJachocki/Serval/issues/10)
 
 ## Dependency decision
 
-Serval uses Tmds.DBus.Protocol pinned to version 0.95.0. It is maintained, MIT
-licensed, targets .NET 6 or later (and therefore .NET 10), and supports trimming
-and NativeAOT. Serval keeps a small typed proxy in source so the build does not
+Serval uses Tmds.DBus.Protocol pinned to version 0.95.0. Serval keeps a small typed proxy in source so the build does not
 make a source generator consume unrelated Roslyn `AdditionalFiles` supplied by
 IDE analyzers such as SonarLint. The proxy implements only the fixed calls and
 property reads listed below.

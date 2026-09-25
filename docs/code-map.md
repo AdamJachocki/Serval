@@ -318,7 +318,7 @@ Task-specific agent instructions.
 Project-specific skills currently include areas such as:
 
 ```text
-serval-github-issue/
+serval-change-workflow/
 serval-systemd/
 serval-privileged-operation/
 ```

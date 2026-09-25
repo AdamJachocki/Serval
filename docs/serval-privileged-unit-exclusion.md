@@ -1,7 +1,5 @@
 # Serval privileged-unit exclusion
 
-Issue: #15
-
 Normal systemd discovery and inspection never return `serval-agent.service`,
 `serval-agent@.service`, or any concrete `serval-agent@` instance. The rule is a
 fixed, ordinal, case-sensitive server-side policy in `Serval.Systemd`; it has no
