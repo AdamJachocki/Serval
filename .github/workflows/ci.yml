@@ -51,21 +51,27 @@ jobs:
           - name: Ubuntu 22.04 x64
             runner: ubuntu-22.04
             systemd_major: '249'
+            runtime: linux-x64
           - name: Ubuntu 22.04 ARM64
             runner: ubuntu-22.04-arm
             systemd_major: '249'
+            runtime: linux-arm64
           - name: Ubuntu 24.04 x64
             runner: ubuntu-24.04
             systemd_major: '255'
+            runtime: linux-x64
           - name: Ubuntu 24.04 ARM64
             runner: ubuntu-24.04-arm
             systemd_major: '255'
+            runtime: linux-arm64
           - name: Ubuntu 26.04 x64
             runner: ubuntu-26.04
             systemd_major: '259'
+            runtime: linux-x64
           - name: Ubuntu 26.04 ARM64
             runner: ubuntu-26.04-arm
             systemd_major: '259'
+            runtime: linux-arm64
 
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
@@ -84,11 +90,16 @@ jobs:
       - name: Restore locked dependencies
         run: dotnet restore Serval.slnx --locked-mode
 
+      - name: Publish self-contained contract test
+        run: dotnet publish tests/Serval.Systemd.Tests/Serval.Systemd.Tests.csproj --configuration Release --runtime ${{ matrix.runtime }} --self-contained true --no-restore --output .artifacts/serval-systemd-contract
+
       - name: Verify typed systemd D-Bus contract
         env:
           SERVAL_EXPECTED_SYSTEMD_MAJOR: ${{ matrix.systemd_major }}
-          SERVAL_REAL_SYSTEMD_TESTS: '1'
-        run: sudo --preserve-env=SERVAL_EXPECTED_SYSTEMD_MAJOR bash tests/Serval.Systemd.Tests/Fixtures/run-enumeration-tests.sh "$(command -v dotnet)" test --project tests/Serval.Systemd.Tests/Serval.Systemd.Tests.csproj --configuration Release --no-restore
+        run: sudo --preserve-env=SERVAL_EXPECTED_SYSTEMD_MAJOR bash tests/Serval.Systemd.Tests/Fixtures/run-enumeration-tests.sh .artifacts/serval-systemd-contract/Serval.Systemd.Tests -noColor
+
+      - name: Verify cleanup after a failing run
+        run: sudo bash tests/Serval.Systemd.Tests/Fixtures/verify-failing-cleanup.sh tests/Serval.Systemd.Tests/Fixtures/run-enumeration-tests.sh .artifacts/serval-systemd-contract/environment-oracle/Serval.EnvironmentOracle
 
   real-systemd-contract-debian:
     name: systemd D-Bus contract (${{ matrix.name }})
@@ -140,6 +151,9 @@ jobs:
 
       - name: Verify typed systemd D-Bus contract
         run: docker exec --env SERVAL_EXPECTED_SYSTEMD_MAJOR=257 --env SERVAL_REAL_SYSTEMD_TESTS=1 serval-debian-systemd bash /fixtures/run-enumeration-tests.sh /tests/Serval.Systemd.Tests -noColor
+
+      - name: Verify cleanup after a failing run
+        run: docker exec serval-debian-systemd bash /fixtures/verify-failing-cleanup.sh /fixtures/run-enumeration-tests.sh /tests/environment-oracle/Serval.EnvironmentOracle
 
       - name: Stop Debian 13 systemd fixture
         if: always()

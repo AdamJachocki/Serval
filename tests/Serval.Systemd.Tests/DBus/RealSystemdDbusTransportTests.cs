@@ -40,7 +40,10 @@ public sealed class RealSystemdDbusTransportTests
 
         Assert.NotEmpty(version);
         Assert.NotEmpty(unitFiles);
-        var loadedUnit = Assert.Single(loadedUnits.Take(1));
+        var loadedUnit = Assert.Single(loadedUnits, unit => string.Equals(
+            unit.Name,
+            "systemd-journald.service",
+            StringComparison.Ordinal));
 
         var namedUnits = await transport.ListUnitsByNamesAsync(
             [new SystemServiceId(loadedUnit.Name)],

@@ -338,9 +338,11 @@ Focused tests cover complete and malformed handoffs, precedence, repeated file
 occurrences, empty and case-distinct values, provenance, exact and first-excess
 limits, cancellation, sanitized diagnostics, and ownership cleanup. The existing
 collision-checked disposable real-systemd harness now acquires, parses, composes,
-and compares synthetic winners with the manager-observed process environment. The
-same harness is configured for the supported systemd 249, 255, 257, and 259 CI
-baselines; local systemd 255 evidence does not substitute for that CI matrix.
+and compares synthetic winners with a private credential-backed in-process oracle.
+Full-model verification does not read `/proc/<pid>/environ`; parser-only baseline
+divergence tests retain their narrower process observation. The same harness is
+configured for the supported systemd 249, 255, 257, and 259 CI baselines; local
+systemd evidence does not substitute for that CI matrix.
 
 M2.6 remains an internal mechanism. M2.7 performs acquisition and
 decreasing-allowance parsing before invoking it under the shared operation
@@ -409,6 +411,54 @@ value-bearing library, it must authenticate the IPC peer, establish trustworthy
 delegation, authorize both the exact service view and environment reveal, and
 enforce protected-target policy at the privileged boundary. Caller-supplied roles
 or authorization flags are not evidence.
+
+### M2.8 verification traceability
+
+Evidence states are deliberately distinct: `passed` means the named execution
+completed successfully, `failed` retains a known unsuccessful execution,
+`skipped` means the test runner reported no execution, `unverified` means no
+current evidence is available, and `intentionally non-representable` means a
+conforming supported manager cannot produce the typed-transport condition. A
+local or Windows managed pass never substitutes for a real-systemd matrix cell.
+
+| Requirement / construction | Focused managed evidence | Full-flow real-systemd evidence | Required/current platform evidence |
+| --- | --- | --- | --- |
+| Fixed, output-free oracle and bounded versioned manifest, including absent names and malformed inputs | `EnvironmentOracleTests` | Helper exit status is checked by `run-enumeration-tests.sh` before product observation | Windows managed: passed; WSL Ubuntu 24.04 x64/systemd 255: passed; current CI matrix: unverified |
+| `Environment=` only; reset; duplicates; empty, escaped, literal and expanded specifier values | `LoadedEnvironmentDecoderTests`, `SystemdEnvironmentComposerTests` | `ComposesFixtureOwnedUniverseToPrivateManifest(environment, false)` | Ubuntu 22.04/24.04/26.04 and Debian 13, x64/ARM64: unverified for this change |
+| One file; ordered multiple and repeated files; optional present/absent; manager/file conflicts; both reset categories | `EnvironmentFileParserTests`, `SystemdEnvironmentComposerTests` | `ReadsManagerOrderedRepeatedRuntimeSourcesAndPreservesFixtureBytes`, `ComposesFixtureOwnedUniverseToPrivateManifest(source, false)` | Supported matrix: unverified for this change |
+| Base/template/instance drop-ins, concrete instance and alias canonicalization | identity/source-reader focused suites | `ComposesFixtureOwnedUniverseToPrivateManifest(source, false/true)` | Supported matrix: unverified for this change |
+| Quoted, continuation and multiline file grammar | `EnvironmentFileParserTests` | Private-manifest source fixture; baseline-divergence tests remain parser-specific | Supported matrix: unverified for this change |
+| Required absence, unsafe symlink and special source; active Unset/Pass; transient; generated; pattern; unresolved specifier | `SystemdEnvironmentSourceReaderTests.RejectsUnsupportedConfigurationBeforeFileAccess` and safe-file tests | `RejectsRepresentableFailureWithoutPartialValues` | Supported matrix: unverified for this change |
+| Unknown property and malformed typed manager replies | `SystemdEnvironmentSourceReaderTests`, `SystemdDbusTransportTests` | Intentionally non-representable on a conforming manager | Windows managed: passed; real-systemd: intentionally non-representable |
+| Protected canonical/alias/privileged-family targets, lookalike control, malformed/template and nonexistent identifiers | `SystemdServiceEnvironmentReaderTests` | `FailsClosedForRequiredMissingUnsupportedAndProtectedTargets` plus disposable lookalike fixtures | Supported matrix: unverified for this change |
+| Source/configuration mutation, optional appearance/disappearance and manager/service disappearance | deterministic source-reader/application-reader race tests | `RejectsDeterministicFixtureRaceWithoutPartialPublication`, configuration and manager disappearance cases | Supported matrix: unverified for this change |
+| No source/config write, lifecycle action or manager reload during product read | reader policy tests | `ProductObservation` holds file identities/content, lifecycle/journal hashes and a filtered manager `Reloading` signal watch | Supported matrix: unverified for this change |
+| Secret leakage and cleanup after success/failure | serialization, disposal and buffer-clearing tests | In-memory scan of helper output, journal and serialized result; `verify-failing-cleanup.sh` | Supported matrix: unverified for this change |
+
+The last publicly observable baseline before this M2.8 change was CI run
+[`36116803359`](https://github.com/AdamJachocki/Serval/actions/runs/36116803359).
+Ubuntu 22.04 x64/ARM64, Ubuntu 24.04 x64 and Ubuntu 26.04 x64/ARM64 passed.
+Debian 13 x64, Debian 13 ARM64 and Ubuntu 24.04 ARM64 failed in the real-systemd
+verification step. Their job logs require repository-administrator access and
+were unavailable during this change, so each failure is classified as an
+`unverified condition`, not as a product, test, harness or runner defect. The
+failures remain unresolved evidence until a current unchanged-or-fixed matrix run
+establishes their cause; rerunning until green is not accepted as diagnosis.
+
+Intentional limitations remain unchanged: the model covers supported declarations,
+not the complete process environment; it does not model PAM, credentials,
+ExecStartPre, manager defaults, kernel variables or future generator execution;
+manager `Environment=` provenance remains aggregate source ID `0`; source IDs are
+request-local; unknown/malformed typed replies have managed evidence only; and the
+optimistic snapshot cannot prove that no concurrent change occurred and reverted
+between its two observations.
+
+Current local evidence is recorded separately: the complete Windows managed suite
+passed with 417 passed and 42 platform-appropriate skips; a self-contained
+`linux-x64` publication then passed the full disposable harness and deliberate
+failure-cleanup verifier in WSL Ubuntu 24.04 with systemd 255. The six Ubuntu and
+two Debian GitHub Actions cells remain `unverified` for this working tree because
+the branch has not been pushed and no pull request run has been authorized.
 
 Semantics reference: [systemd.exec](https://raw.githubusercontent.com/systemd/systemd/main/man/systemd.exec.xml),
 [systemd.unit](https://raw.githubusercontent.com/systemd/systemd/main/man/systemd.unit.xml),

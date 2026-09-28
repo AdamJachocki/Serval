@@ -2,6 +2,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/Serval.Application.Tests/Serval.Application.Tests.csproj" />
     <Project Path="tests/Serval.Domain.Tests/Serval.Domain.Tests.csproj" />
+    <Project Path="tests/Serval.EnvironmentOracle/Serval.EnvironmentOracle.csproj" />
     <Project Path="tests/Serval.Infrastructure.Tests/Serval.Infrastructure.Tests.csproj" />
     <Project Path="tests/Serval.Systemd.Tests/Serval.Systemd.Tests.csproj" />
   </Folder>
