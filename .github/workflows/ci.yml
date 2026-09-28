@@ -99,6 +99,7 @@ jobs:
         run: sudo --preserve-env=SERVAL_EXPECTED_SYSTEMD_MAJOR bash tests/Serval.Systemd.Tests/Fixtures/run-enumeration-tests.sh .artifacts/serval-systemd-contract/Serval.Systemd.Tests -noColor
 
       - name: Verify cleanup after a failing run
+        if: always()
         run: sudo bash tests/Serval.Systemd.Tests/Fixtures/verify-failing-cleanup.sh tests/Serval.Systemd.Tests/Fixtures/run-enumeration-tests.sh .artifacts/serval-systemd-contract/environment-oracle/Serval.EnvironmentOracle
 
   real-systemd-contract-debian:
@@ -139,7 +140,8 @@ jobs:
 
       - name: Start Debian 13 systemd fixture
         run: |
-          docker run --detach --name serval-debian-systemd --privileged --cgroupns=host --tmpfs /run --tmpfs /run/lock --volume /sys/fs/cgroup:/sys/fs/cgroup:rw --volume "${{ github.workspace }}/.artifacts/serval-systemd-contract:/tests:ro" --volume "${{ github.workspace }}/tests/Serval.Systemd.Tests/Fixtures:/fixtures:ro" serval-debian-systemd
+          docker run --detach --name serval-debian-systemd --privileged --cgroupns=host --tmpfs /run:rw,exec,mode=755 --tmpfs /run/lock --volume /sys/fs/cgroup:/sys/fs/cgroup:rw --volume "${{ github.workspace }}/.artifacts/serval-systemd-contract:/tests:ro" --volume "${{ github.workspace }}/tests/Serval.Systemd.Tests/Fixtures:/fixtures:ro" serval-debian-systemd
+          docker exec serval-debian-systemd mount --make-shared /run
           for attempt in {1..30}; do
             if docker exec serval-debian-systemd test -S /run/systemd/private; then
               exit 0
@@ -153,6 +155,7 @@ jobs:
         run: docker exec --env SERVAL_EXPECTED_SYSTEMD_MAJOR=257 --env SERVAL_REAL_SYSTEMD_TESTS=1 serval-debian-systemd bash /fixtures/run-enumeration-tests.sh /tests/Serval.Systemd.Tests -noColor
 
       - name: Verify cleanup after a failing run
+        if: always()
         run: docker exec serval-debian-systemd bash /fixtures/verify-failing-cleanup.sh /fixtures/run-enumeration-tests.sh /tests/environment-oracle/Serval.EnvironmentOracle
 
       - name: Stop Debian 13 systemd fixture

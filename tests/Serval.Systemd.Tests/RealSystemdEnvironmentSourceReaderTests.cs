@@ -557,6 +557,44 @@ public sealed class RealSystemdEnvironmentSourceReaderTests
             byte[]? journalHash = null;
             try
             {
+                var reloadState = new ReloadSignalState();
+                reloadObserver = await DBusConnection.System.AddMatchAsync(
+                    new MatchRule
+                    {
+                        Type = MessageType.Signal,
+                        Sender = "org.freedesktop.systemd1",
+                        Path = "/org/freedesktop/systemd1",
+                        Interface = "org.freedesktop.systemd1.Manager",
+                        Member = "Reloading",
+                    },
+                    static (Message message, object? _) => message.GetBodyReader().ReadBool(),
+                    notification =>
+                    {
+                        if (notification.HasValue)
+                            reloadState.Observe(notification.Value);
+                    },
+                    emitOnCapturedContext: false,
+                    flags: ObserverFlags.None,
+                    state: null).ConfigureAwait(false);
+
+                byte[]? positiveControlHash = null;
+                try
+                {
+                    positiveControlHash = await SnapshotCommandAsync(
+                        "/usr/bin/systemctl",
+                        ["daemon-reload"],
+                        cancellationToken).ConfigureAwait(false);
+                    await reloadState.WaitForCompletedCycleAsync(cancellationToken)
+                        .ConfigureAwait(false);
+                    await AwaitManagerSignalBarrierAsync(cancellationToken).ConfigureAwait(false);
+                    reloadState.Reset();
+                }
+                finally
+                {
+                    if (positiveControlHash is not null)
+                        CryptographicOperations.ZeroMemory(positiveControlHash);
+                }
+
                 foreach (var path in paths)
                 {
                     var observed = await files.ObserveAsync(
@@ -573,32 +611,6 @@ public sealed class RealSystemdEnvironmentSourceReaderTests
                     "/usr/bin/journalctl",
                     ["--quiet", "--unit=" + unitName, "--no-pager", "--output=short-monotonic"],
                     cancellationToken).ConfigureAwait(false);
-
-                var reloadState = new ReloadSignalState();
-                reloadObserver = await DBusConnection.System.AddMatchAsync(
-                    new MatchRule
-                    {
-                        Type = MessageType.Signal,
-                        Sender = "org.freedesktop.systemd1",
-                        Path = "/org/freedesktop/systemd1",
-                        Interface = "org.freedesktop.DBus.Properties",
-                        Member = "PropertiesChanged",
-                        Arg0 = "org.freedesktop.systemd1.Manager",
-                    },
-                    static (Message message, object? _) =>
-                    {
-                        var reader = message.GetBodyReader();
-                        _ = reader.ReadString();
-                        return reader.ReadDictionaryOfStringToVariantValue().ContainsKey("Reloading");
-                    },
-                    notification =>
-                    {
-                        if (notification.HasValue && notification.Value)
-                            Interlocked.Exchange(ref reloadState.Observed, 1);
-                    },
-                    emitOnCapturedContext: false,
-                    flags: ObserverFlags.None,
-                    state: null).ConfigureAwait(false);
 
                 return new ProductObservation(
                     unitName, files, snapshots, lifecycleHash, journalHash, reloadObserver, reloadState);
@@ -621,7 +633,6 @@ public sealed class RealSystemdEnvironmentSourceReaderTests
 
         internal async Task AssertUnchangedAsync(CancellationToken cancellationToken)
         {
-            Assert.Equal(0, Volatile.Read(ref _reloadState.Observed));
             foreach (var snapshot in _snapshots)
             {
                 Assert.True(
@@ -664,6 +675,9 @@ public sealed class RealSystemdEnvironmentSourceReaderTests
                 CryptographicOperations.ZeroMemory(lifecycleAfter);
                 CryptographicOperations.ZeroMemory(journalAfter);
             }
+
+            await AwaitManagerSignalBarrierAsync(cancellationToken).ConfigureAwait(false);
+            Assert.Equal(0, Volatile.Read(ref _reloadState.Observed));
         }
 
         public ValueTask DisposeAsync()
@@ -717,9 +731,38 @@ public sealed class RealSystemdEnvironmentSourceReaderTests
             }
         }
 
+        private static async Task AwaitManagerSignalBarrierAsync(CancellationToken cancellationToken)
+        {
+            var manager = new Serval.Systemd.DBus.Generated.Manager(
+                DBusConnection.System,
+                "org.freedesktop.systemd1",
+                new ObjectPath("/org/freedesktop/systemd1"));
+            _ = await manager.GetVersionAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         private sealed class ReloadSignalState
         {
+            private readonly TaskCompletionSource _completedCycle = new(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+
             internal int Observed;
+
+            internal void Observe(bool reloading)
+            {
+                if (reloading)
+                {
+                    Interlocked.Exchange(ref Observed, 1);
+                }
+                else if (Volatile.Read(ref Observed) != 0)
+                {
+                    _completedCycle.TrySetResult();
+                }
+            }
+
+            internal Task WaitForCompletedCycleAsync(CancellationToken cancellationToken) =>
+                _completedCycle.Task.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
+
+            internal void Reset() => Interlocked.Exchange(ref Observed, 0);
         }
     }
 

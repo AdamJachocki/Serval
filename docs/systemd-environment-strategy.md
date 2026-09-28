@@ -435,15 +435,19 @@ local or Windows managed pass never substitutes for a real-systemd matrix cell.
 | No source/config write, lifecycle action or manager reload during product read | reader policy tests | `ProductObservation` holds file identities/content, lifecycle/journal hashes and a filtered manager `Reloading` signal watch | Supported matrix: unverified for this change |
 | Secret leakage and cleanup after success/failure | serialization, disposal and buffer-clearing tests | In-memory scan of helper output, journal and serialized result; `verify-failing-cleanup.sh` | Supported matrix: unverified for this change |
 
-The last publicly observable baseline before this M2.8 change was CI run
-[`36116803359`](https://github.com/AdamJachocki/Serval/actions/runs/36116803359).
-Ubuntu 22.04 x64/ARM64, Ubuntu 24.04 x64 and Ubuntu 26.04 x64/ARM64 passed.
-Debian 13 x64, Debian 13 ARM64 and Ubuntu 24.04 ARM64 failed in the real-systemd
-verification step. Their job logs require repository-administrator access and
-were unavailable during this change, so each failure is classified as an
-`unverified condition`, not as a product, test, harness or runner defect. The
-failures remain unresolved evidence until a current unchanged-or-fixed matrix run
-establishes their cause; rerunning until green is not accepted as diagnosis.
+The first public M2.8 matrix run was
+[`36405071726`](https://github.com/AdamJachocki/Serval/actions/runs/36405071726).
+All six Ubuntu 22.04/24.04/26.04 x64/ARM64 cells passed. Debian 13 x64 and ARM64
+failed in the real-systemd verification step. Reproducing the same Debian
+container locally classified the failures as harness/orchestration defects:
+Docker mounted `/run` with `noexec`, which prevented the test generator from
+running, and with private propagation, which prevented systemd credential mounts
+from reaching service processes. The parser oracle also used `Type=simple`, so a
+read immediately after `systemctl start` could race the service `execve`. The
+working tree makes `/run` executable and shared and uses `Type=exec` for those
+process-environment fixtures. The fixed Debian matrix cells remain `unverified`
+until a current CI run completes; the earlier failures remain recorded rather
+than being replaced by local evidence.
 
 Intentional limitations remain unchanged: the model covers supported declarations,
 not the complete process environment; it does not model PAM, credentials,
@@ -454,11 +458,14 @@ optimistic snapshot cannot prove that no concurrent change occurred and reverted
 between its two observations.
 
 Current local evidence is recorded separately: the complete Windows managed suite
-passed with 417 passed and 42 platform-appropriate skips; a self-contained
-`linux-x64` publication then passed the full disposable harness and deliberate
-failure-cleanup verifier in WSL Ubuntu 24.04 with systemd 255. The six Ubuntu and
-two Debian GitHub Actions cells remain `unverified` for this working tree because
-the branch has not been pushed and no pull request run has been authorized.
+passed with 417 passed and 42 platform-appropriate skips, and self-contained
+`linux-x64` and `linux-arm64` publications succeeded. The current `linux-x64`
+artifact passed all 385 tests in the disposable Debian 13/systemd 257 container,
+followed by the deliberate failure-cleanup verifier. An earlier self-contained
+`linux-x64` publication also passed the full disposable harness and cleanup
+verifier in WSL Ubuntu 24.04/systemd 255. The six Ubuntu and two Debian GitHub
+Actions cells remain `unverified` for this working tree because the branch has
+not been pushed and no pull request run has been authorized.
 
 Semantics reference: [systemd.exec](https://raw.githubusercontent.com/systemd/systemd/main/man/systemd.exec.xml),
 [systemd.unit](https://raw.githubusercontent.com/systemd/systemd/main/man/systemd.unit.xml),
