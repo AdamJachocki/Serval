@@ -12,6 +12,11 @@ trap 'report_error "$LINENO" "$BASH_COMMAND"' ERR
 export SERVAL_ENUMERATION_FIXTURE_PREFIX="${SERVAL_ENUMERATION_FIXTURE_PREFIX:-serval-enumeration-test-$(cat /proc/sys/kernel/random/uuid)}"
 prefix="$SERVAL_ENUMERATION_FIXTURE_PREFIX"
 [[ "$prefix" =~ ^serval-enumeration-test-[a-f0-9-]+$ ]]
+cleanup_status_file="${SERVAL_CLEANUP_STATUS_FILE:-}"
+if [[ -n "$cleanup_status_file" && "$cleanup_status_file" != "/run/$prefix-cleanup-complete" ]]; then
+    printf 'Refusing unsafe cleanup status path.\n' >&2
+    exit 1
+fi
 instance_id="${prefix#serval-enumeration-test-}"
 root=/run/systemd/system
 inactive="$root/$prefix-inactive.service"
@@ -183,6 +188,9 @@ cleanup() {
     fi
     rmdir -- "$private_parent" || true
     systemctl daemon-reload
+    if [[ -n "$cleanup_status_file" ]]; then
+        (umask 077; : > "$cleanup_status_file")
+    fi
 }
 trap cleanup EXIT
 write_u32() {
@@ -428,7 +436,7 @@ cat > "$environment_file_unit" <<UNIT
 [Unit]
 Description=Serval environment-file parser fixture
 [Service]
-Type=simple
+Type=exec
 EnvironmentFile=$environment_file_source
 ExecStart=/usr/bin/sleep 300
 UNIT
@@ -444,7 +452,7 @@ cat > "$environment_divergence_template" <<UNIT
 [Unit]
 Description=Serval environment-file divergence fixture
 [Service]
-Type=simple
+Type=exec
 EnvironmentFile=$root/$prefix-environment-divergence-%i.env
 ExecStart=/usr/bin/sleep 300
 UNIT
@@ -499,7 +507,12 @@ systemd-run --quiet --unit="$prefix-transient.service" /usr/bin/sleep 300
 chmod 600 -- "$oracle_output"
 if ! systemctl start "$environment_name" >> "$oracle_output" 2>&1 ||
    ! systemctl start "$source_name" >> "$oracle_output" 2>&1; then
-    printf 'An environment oracle fixture failed.\n' >&2
+    for oracle_unit in "$environment_name" "$source_name"; do
+        printf 'Environment oracle fixture %s: Result=%s, ExecMainStatus=%s.\n' \
+            "$oracle_unit" \
+            "$(systemctl show --no-pager --property=Result --value "$oracle_unit")" \
+            "$(systemctl show --no-pager --property=ExecMainStatus --value "$oracle_unit")" >&2
+    done
     exit 1
 fi
 : > "$oracle_journal"
