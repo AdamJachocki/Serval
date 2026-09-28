@@ -1,6 +1,7 @@
 #!/bin/bash
 # Test harness only; production discovery never executes processes or writes units.
 set -Eeuo pipefail
+export LC_ALL=C
 report_error() {
     local status="$?"
     printf 'Harness command failed at line %s with status %s: %s\n' \
@@ -8,7 +9,7 @@ report_error() {
     return "$status"
 }
 trap 'report_error "$LINENO" "$BASH_COMMAND"' ERR
-export SERVAL_ENUMERATION_FIXTURE_PREFIX="serval-enumeration-test-$(cat /proc/sys/kernel/random/uuid)"
+export SERVAL_ENUMERATION_FIXTURE_PREFIX="${SERVAL_ENUMERATION_FIXTURE_PREFIX:-serval-enumeration-test-$(cat /proc/sys/kernel/random/uuid)}"
 prefix="$SERVAL_ENUMERATION_FIXTURE_PREFIX"
 [[ "$prefix" =~ ^serval-enumeration-test-[a-f0-9-]+$ ]]
 instance_id="${prefix#serval-enumeration-test-}"
@@ -45,19 +46,55 @@ source_template_name="$prefix-source@.service"
 source_template="$root/$source_template_name"
 source_dropin="$source_template.d"
 source_name="$prefix-source@sample.service"
+source_instance_dropin="$root/$source_name.d"
 source_alias_name="$prefix-source-alias@sample.service"
 source_alias="$root/$source_alias_name"
 source_one="$root/$prefix-source-sample-one.env"
 source_two="$root/$prefix-source-sample-two.env"
 source_three="$root/$prefix-source-sample-three.env"
 source_missing="$root/$prefix-source-sample-optional-missing.env"
+source_optional="$root/$prefix-source-sample-optional-present.env"
 source_required_name="$prefix-source-required-missing.service"
 source_required_unit="$root/$source_required_name"
 source_required_missing="$root/$prefix-source-required-missing.env"
 source_unsupported_name="$prefix-source-unsupported.service"
 source_unsupported_unit="$root/$source_unsupported_name"
+source_pass_name="$prefix-source-pass.service"
+source_pass_unit="$root/$source_pass_name"
+source_pattern_name="$prefix-source-pattern.service"
+source_pattern_unit="$root/$source_pattern_name"
+source_specifier_name="$prefix-source-specifier.service"
+source_specifier_unit="$root/$source_specifier_name"
+source_symlink_name="$prefix-source-symlink.service"
+source_symlink_unit="$root/$source_symlink_name"
+source_symlink="$root/$prefix-source-symlink.env"
+source_special_name="$prefix-source-special.service"
+source_special_unit="$root/$source_special_name"
+source_generated_name="$prefix-source-generated.service"
+source_generated_root=/run/systemd/generator
+source_generated_unit="$source_generated_root/$source_generated_name"
+source_generator_root=/run/systemd/system-generators
+source_generator="$source_generator_root/$prefix-source-generator"
+source_nonexistent_name="$prefix-source-nonexistent.service"
 source_disappear_name="$prefix-source-disappear.service"
 source_disappear_unit="$root/$source_disappear_name"
+private_parent=/run/serval-environment-tests
+private_root="$private_parent/$prefix"
+source_symlink_target="$private_root/source-symlink-target.env"
+source_manifest="$private_root/source.manifest"
+environment_manifest="$private_root/environment.manifest"
+parser_marker="$private_root/parser.marker"
+oracle_output="$private_root/oracle-output.log"
+oracle_journal="$private_root/oracle-journal.log"
+oracle="${SERVAL_ENVIRONMENT_ORACLE:-}"
+if [[ -z "$oracle" && -x "$(dirname -- "$1")/environment-oracle/Serval.EnvironmentOracle" ]]; then
+    oracle="$(dirname -- "$1")/environment-oracle/Serval.EnvironmentOracle"
+fi
+if [[ ! -x "$oracle" ]]; then
+    printf 'The environment oracle executable is unavailable.\n' >&2
+    exit 1
+fi
+oracle="$(realpath -e -- "$oracle")"
 fixture_names=(
     "$environment_name"
     "$environment_file_name"
@@ -84,6 +121,13 @@ fixture_names=(
     "$source_alias_name"
     "$source_required_name"
     "$source_unsupported_name"
+    "$source_pass_name"
+    "$source_pattern_name"
+    "$source_specifier_name"
+    "$source_symlink_name"
+    "$source_special_name"
+    "$source_generated_name"
+    "$source_nonexistent_name"
     "$source_disappear_name"
 )
 is_listed() {
@@ -105,11 +149,11 @@ for name in "${fixture_names[@]}"; do
         exit 1
     fi
 done
-for file in "$inactive" "$alias" "$template" "$instance" "$instance_alias" "$template_alias" "$privileged" "$privileged_alias" "$lookalike" "$failed" "$masked" "$environment_unit" "$environment_dropin" "$environment_file_unit" "$environment_file_source" "$environment_invalid_unit" "$environment_invalid_source" "$environment_divergence_template" "$environment_divergence_lf" "$environment_divergence_cr" "$environment_divergence_crlf" "$source_template" "$source_dropin" "$source_alias" "$source_one" "$source_two" "$source_three" "$source_missing" "$source_required_unit" "$source_required_missing" "$source_unsupported_unit" "$source_disappear_unit"; do
+for file in "$inactive" "$alias" "$template" "$instance" "$instance_alias" "$template_alias" "$privileged" "$privileged_alias" "$lookalike" "$failed" "$masked" "$environment_unit" "$environment_dropin" "$environment_file_unit" "$environment_file_source" "$environment_invalid_unit" "$environment_invalid_source" "$environment_divergence_template" "$environment_divergence_lf" "$environment_divergence_cr" "$environment_divergence_crlf" "$source_template" "$source_dropin" "$source_instance_dropin" "$source_alias" "$source_one" "$source_two" "$source_three" "$source_missing" "$source_optional" "$source_required_unit" "$source_required_missing" "$source_unsupported_unit" "$source_pass_unit" "$source_pattern_unit" "$source_specifier_unit" "$source_symlink_unit" "$source_symlink" "$source_special_unit" "$source_generator" "$source_generated_unit" "$source_disappear_unit" "$private_root"; do
     test ! -e "$file" && test ! -L "$file"
 done
 cleanup() {
-    systemctl stop "$environment_file_name" "$environment_invalid_name" \
+    systemctl stop "$environment_name" "$environment_file_name" "$environment_invalid_name" \
         "$prefix-environment-divergence@lf.service" "$prefix-environment-divergence@cr.service" \
         "$prefix-environment-divergence@crlf.service" "$source_name" || true
     systemctl stop "$prefix-transient.service" "$prefix-worker@loaded.service" || true
@@ -121,58 +165,133 @@ cleanup() {
         "$environment_divergence_cr" "$environment_divergence_crlf"
     rm -f -- "$source_template" "$source_dropin/10-manager.conf" \
         "$source_dropin/20-sources.conf" "$source_dropin/30-repeat.conf" "$source_alias" \
-        "$source_one" "$source_two" "$source_three" "$source_required_unit" "$source_unsupported_unit" \
-        "$source_disappear_unit"
+        "$source_instance_dropin/40-instance.conf" \
+        "$source_one" "$source_two" "$source_three" "$source_missing" "$source_optional" \
+        "$source_required_unit" "$source_unsupported_unit" \
+        "$source_pass_unit" "$source_pattern_unit" "$source_specifier_unit" "$source_symlink_unit" \
+        "$source_symlink" "$source_special_unit" "$source_generated_unit" "$source_disappear_unit"
+    rm -f -- "$source_generator"
     rmdir -- "$environment_dropin" || true
     rmdir -- "$source_dropin" || true
+    rmdir -- "$source_instance_dropin" || true
+    if [[ "$private_root" == "$private_parent/$prefix" &&
+          "$private_root" == /run/serval-environment-tests/serval-enumeration-test-* ]]; then
+        rm -rf -- "$private_root"
+    else
+        printf 'Refusing unsafe fixture cleanup target.\n' >&2
+        return 1
+    fi
+    rmdir -- "$private_parent" || true
     systemctl daemon-reload
 }
 trap cleanup EXIT
+write_u32() {
+    local descriptor="$1"
+    local value="$2"
+    local encoded
+    printf -v encoded '\\%03o\\%03o\\%03o\\%03o' \
+        "$((value & 255))" "$(((value >> 8) & 255))" \
+        "$(((value >> 16) & 255))" "$(((value >> 24) & 255))"
+    printf '%b' "$encoded" >&"$descriptor"
+}
+write_manifest() {
+    local path="$1"
+    shift
+    local descriptor
+    local kind
+    local name
+    local value
+    local count="$(( $# / 3 ))"
+    exec {descriptor}>"$path"
+    printf 'SERVALM1' >&"$descriptor"
+    write_u32 "$descriptor" "$count"
+    while (( $# != 0 )); do
+        kind="$1"
+        name="$2"
+        value="$3"
+        shift 3
+        if [[ "$kind" == present ]]; then
+            printf '\001' >&"$descriptor"
+        else
+            printf '\000' >&"$descriptor"
+            value=''
+        fi
+        write_u32 "$descriptor" "${#name}"
+        write_u32 "$descriptor" "${#value}"
+        printf '%s%s' "$name" "$value" >&"$descriptor"
+    done
+    exec {descriptor}>&-
+    chmod 600 -- "$path"
+}
+mkdir -p -m 700 -- "$private_parent"
+mkdir -m 700 -- "$private_root"
 # Private synthetic values; never print them or pass them as process arguments.
 mkdir -m 700 -- "$environment_dropin"
 (
     umask 077
     marker="$(cat /proc/sys/kernel/random/uuid)"
+    printf '%s' "$marker" > "$parser_marker"
+    chmod 600 -- "$parser_marker"
     printf '%s' "$marker" > "$environment_dropin/expected"
-    printf '[Service]\nType=oneshot\nExecStart=/usr/bin/true\nEnvironment=REMOVED=%s\n' "$marker" > "$environment_unit"
+    {
+        printf '[Service]\nType=oneshot\n'
+        printf 'LoadCredential=serval-environment-expectations:%s\n' "$environment_manifest"
+        printf 'ExecStart=%s\nEnvironment=REMOVED=%s\n' "$oracle" "$marker"
+    } > "$environment_unit"
     {
         printf '[Service]\nEnvironment=\nEnvironment="VALUE=%s first"\n' "$marker"
         printf 'Environment="VALUE=%s final" "EMPTY="\n' "$marker"
         printf 'Environment="ESCAPED=%s\\n\\t\\\\"\n' "$marker"
         printf 'Environment="LITERAL=%s $HOME $(id) `id`"\n' "$marker"
         printf 'Environment="SPECIFIER=%%n/%%i/%%%%"\n'
-        # Invalid assignment contains no value, even if systemd journals its diagnostic.
-        printf 'Environment=9INVALID=\n'
     } > "$environment_dropin/10-environment.conf"
+    write_manifest "$environment_manifest" \
+        present VALUE "$marker final" \
+        present EMPTY '' \
+        present ESCAPED "$marker"$'\n\t\\' \
+        present LITERAL "$marker \$HOME \$(id) \`id\`" \
+        present SPECIFIER "$environment_name/sample/%" \
+        absent REMOVED ''
 )
 # Ordered source-reader fixture. Private values are generated and never emitted.
 mkdir -m 700 -- "$source_dropin"
+mkdir -m 700 -- "$source_instance_dropin"
 (
     umask 077
     marker="$(cat /proc/sys/kernel/random/uuid)"
     printf 'ONE=%s-one\nREPEATED=%s-repeated\n' "$marker" "$marker" > "$source_one"
     printf 'TWO=%s-two\nLATER=%s-earlier\nCONFLICT=%s-file\n' "$marker" "$marker" "$marker" > "$source_two"
-    printf 'THREE=%s-three\nLATER=%s-later\nEMPTY=\n' "$marker" "$marker" > "$source_three"
+    printf 'OPTIONAL=%s-optional\n' "$marker" > "$source_optional"
+    {
+        printf 'THREE=%s-three\nLATER=%s-later\nEMPTY=\n' "$marker" "$marker"
+        printf 'QUOTED="%s quoted"\n' "$marker"
+        printf 'CONTINUED=%s-con\\\ntinued\n' "$marker"
+        printf "MULTILINE='%s-first\nsecond'\n" "$marker"
+    } > "$source_three"
     cat > "$source_template" <<UNIT
 [Unit]
 Description=Serval ordered source reader fixture
 [Service]
 Type=simple
 Environment=REMOVED=$marker
+Environment=BASE_REMOVED=$marker-base
 EnvironmentFile=$source_two
-ExecStart=/usr/bin/sleep 300
+LoadCredential=serval-environment-expectations:$source_manifest
+ExecStart=$oracle
 UNIT
     cat > "$source_dropin/10-manager.conf" <<UNIT
 [Service]
 Environment=
-Environment=ACTIVE=$marker-%%i
+Environment=ACTIVE=$marker-%i
 Environment=CONFLICT=$marker-manager
+Environment=TEMPLATE_SELECTED=$marker-template
 UNIT
     cat > "$source_dropin/20-sources.conf" <<UNIT
 [Service]
 EnvironmentFile=
 EnvironmentFile=$source_one
 EnvironmentFile=-$source_missing
+EnvironmentFile=-$source_optional
 EnvironmentFile=$source_two
 EnvironmentFile=$source_three
 UNIT
@@ -180,6 +299,27 @@ UNIT
 [Service]
 EnvironmentFile=$source_one
 UNIT
+    cat > "$source_instance_dropin/40-instance.conf" <<UNIT
+[Service]
+Environment=INSTANCE_SELECTED=$marker-instance
+UNIT
+    write_manifest "$source_manifest" \
+        present ACTIVE "$marker-sample" \
+        present CONFLICT "$marker-file" \
+        present TEMPLATE_SELECTED "$marker-template" \
+        present INSTANCE_SELECTED "$marker-instance" \
+        present ONE "$marker-one" \
+        present REPEATED "$marker-repeated" \
+        present OPTIONAL "$marker-optional" \
+        present TWO "$marker-two" \
+        present LATER "$marker-later" \
+        present THREE "$marker-three" \
+        present EMPTY '' \
+        present QUOTED "$marker quoted" \
+        present CONTINUED "$marker-continued" \
+        present MULTILINE "$marker-first"$'\n''second' \
+        absent REMOVED '' \
+        absent BASE_REMOVED ''
 )
 ln -s "$source_name" "$source_alias"
 cat > "$source_required_unit" <<UNIT
@@ -199,6 +339,62 @@ UnsetEnvironment=ACTIVE
 EnvironmentFile=/dev/null
 ExecStart=/usr/bin/true
 UNIT
+cat > "$source_pass_unit" <<'UNIT'
+[Unit]
+Description=Serval pass-environment unsupported fixture
+[Service]
+Type=oneshot
+PassEnvironment=PATH
+ExecStart=/usr/bin/true
+UNIT
+cat > "$source_pattern_unit" <<UNIT
+[Unit]
+Description=Serval path-pattern unsupported fixture
+[Service]
+Type=oneshot
+EnvironmentFile=$root/$prefix-source-pattern-*.env
+ExecStart=/usr/bin/true
+UNIT
+cat > "$source_specifier_unit" <<UNIT
+[Unit]
+Description=Serval unresolved-specifier unsupported fixture
+[Service]
+Type=oneshot
+EnvironmentFile=$root/$prefix-source-%%n.env
+ExecStart=/usr/bin/true
+UNIT
+cat > "$source_symlink_unit" <<UNIT
+[Unit]
+Description=Serval unsafe symlink source fixture
+[Service]
+Type=oneshot
+EnvironmentFile=$source_symlink
+ExecStart=/usr/bin/true
+UNIT
+printf 'CONTROLLED=synthetic\n' > "$source_symlink_target"
+chmod 600 -- "$source_symlink_target"
+ln -s "$source_symlink_target" "$source_symlink"
+cat > "$source_special_unit" <<'UNIT'
+[Unit]
+Description=Serval unsafe special source fixture
+[Service]
+Type=oneshot
+EnvironmentFile=/dev/null
+ExecStart=/usr/bin/true
+UNIT
+mkdir -p -- "$source_generator_root"
+cat > "$source_generator" <<UNIT
+#!/bin/sh
+set -eu
+cat > "\$1/$source_generated_name" <<'GENERATED_UNIT'
+[Unit]
+Description=Serval generated source fixture
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/true
+GENERATED_UNIT
+UNIT
+chmod 700 -- "$source_generator"
 cat > "$source_disappear_unit" <<'UNIT'
 [Unit]
 Description=Serval disappearing source fixture
@@ -223,7 +419,7 @@ UNIT
         printf 'UNICODE=%s-zażółć-😀\n' "$marker"
         printf 'DUPLICATE=%s-first\nDUPLICATE=%s-final\n' "$marker" "$marker"
     } > "$environment_file_source"
-    printf 'FORBIDDEN=\uFDD0\n' > "$environment_invalid_source"
+    printf 'FORBIDDEN=\357\267\220\n' > "$environment_invalid_source"
     printf '# divergent \\\nAFTER=%s\n' "$marker" > "$environment_divergence_lf"
     printf '# divergent \\\rAFTER=%s\r' "$marker" > "$environment_divergence_cr"
     printf '# stable \\\r\nAFTER=%s\r\n' "$marker" > "$environment_divergence_crlf"
@@ -299,6 +495,30 @@ if systemctl start "$prefix-failed.service"; then
 fi
 systemctl start "$prefix-worker@loaded.service"
 systemd-run --quiet --unit="$prefix-transient.service" /usr/bin/sleep 300
+: > "$oracle_output"
+chmod 600 -- "$oracle_output"
+if ! systemctl start "$environment_name" >> "$oracle_output" 2>&1 ||
+   ! systemctl start "$source_name" >> "$oracle_output" 2>&1; then
+    printf 'An environment oracle fixture failed.\n' >&2
+    exit 1
+fi
+: > "$oracle_journal"
+chmod 600 -- "$oracle_journal"
+journalctl --quiet --unit="$environment_name" --unit="$source_name" \
+    --no-pager --output=cat > "$oracle_journal"
+journalctl --sync
+assert_oracle_success() {
+    local result
+    local status
+    result="$(systemctl show --no-pager --property=Result --value "$1")"
+    status="$(systemctl show --no-pager --property=ExecMainStatus --value "$1")"
+    if [[ "$result" != success || "$status" != 0 ]]; then
+        printf 'An environment oracle fixture failed.\n' >&2
+        return 1
+    fi
+}
+assert_oracle_success "$environment_name"
+assert_oracle_success "$source_name"
 assert_state() {
     local unit="$1"
     local property
@@ -387,6 +607,7 @@ assert_runtime_states
 lifecycle_before="$(snapshot_runtime_lifecycle)"
 journal_before="$(snapshot_inactive_journal)"
 export SERVAL_REAL_SYSTEMD_TESTS=1
+export SERVAL_REQUIRE_REAL_SYSTEMD_TESTS=1
 "$@"
 assert_discovery_states
 assert_templates_unloaded

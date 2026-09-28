@@ -275,6 +275,9 @@
       "serval.domain": {
         "type": "Project"
       },
+      "serval.environmentoracle": {
+        "type": "Project"
+      },
       "serval.systemd": {
         "type": "Project",
         "dependencies": {

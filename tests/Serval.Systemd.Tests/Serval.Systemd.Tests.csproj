@@ -16,6 +16,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Serval.EnvironmentOracle\Serval.EnvironmentOracle.csproj" />
     <ProjectReference Include="..\..\src\Serval.Systemd\Serval.Systemd.csproj" />
   </ItemGroup>
+
+  <Target Name="PublishEnvironmentOracle" AfterTargets="Publish" Condition="'$(RuntimeIdentifier)' != ''">
+    <MSBuild
+      Projects="..\Serval.EnvironmentOracle\Serval.EnvironmentOracle.csproj"
+      Targets="Publish"
+      Properties="Configuration=$(Configuration);TargetFramework=$(TargetFramework);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained);PublishDir=$(PublishDir)environment-oracle\;NoRestore=true" />
+  </Target>
 </Project>
