@@ -30,7 +30,7 @@
 - [x] 5.1 Diagnose the prior Debian 13 x64/ARM64 and Ubuntu 24.04 ARM64 real-systemd job failures before changing orchestration; verify each is classified as an M2 test defect, harness defect, runner/infrastructure failure, or unverified condition, and fix only in-scope verification defects without removing runners, raising minimum systemd versions, or increasing product timeouts.
 - [x] 5.2 Update only the existing Ubuntu 22.04/24.04/26.04 and Debian 13 x64/ARM64 jobs as needed to publish and execute the helper through `run-enumeration-tests.sh`; verify a disabled/skipped real-systemd suite makes the job fail or remain explicitly unverified rather than reporting compatibility success.
 - [x] 5.3 Extend `docs/systemd-environment-strategy.md` with the M2 requirement/construction → focused test → full-flow test → platform traceability table and intentional model limitations; verify it distinguishes passed, failed, skipped, unverified, and intentionally non-representable evidence without copying secrets or claiming local evidence for CI.
-- [ ] 5.4 Run and record Windows managed results, any authorized WSL real-systemd run, and every supported CI matrix cell separately; verify fixture cleanup after success and failure, retain unresolved failed/unverified status, and do not rerun unchanged failures until green.
+- [x] 5.4 Run and record Windows managed results, any authorized WSL real-systemd run, and every supported CI matrix cell separately; verify fixture cleanup after success and failure, retain unresolved failed/unverified status, and do not rerun unchanged failures until green.
 
 ## 6. Completion gates
 
