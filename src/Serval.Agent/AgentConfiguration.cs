@@ -80,7 +80,7 @@ public sealed partial record AgentConfiguration(
             throw new InvalidOperationException("Agent policy directory is unsafe.");
         }
 
-        var descriptor = Open(policyPath, OpenReadOnly | OpenCloseOnExec | OpenNoFollow);
+        var descriptor = Open(policyPath, OpenReadOnly | OpenCloseOnExec | OpenNoFollow, 0);
         if (descriptor < 0)
         {
             if (Marshal.GetLastPInvokeError() == NoSuchFile)
@@ -170,7 +170,7 @@ public sealed partial record AgentConfiguration(
 
     private static SafeFileHandle OpenSafe(string path, int extraFlags, ushort expectedType)
     {
-        var descriptor = Open(path, OpenReadOnly | OpenCloseOnExec | OpenNoFollow | extraFlags);
+        var descriptor = Open(path, OpenReadOnly | OpenCloseOnExec | OpenNoFollow | extraFlags, 0);
         if (descriptor < 0)
         {
             throw new InvalidOperationException("Agent configuration path is unavailable.");
@@ -192,7 +192,7 @@ public sealed partial record AgentConfiguration(
     private static partial uint Geteuid();
 
     [LibraryImport("libc", EntryPoint = "open", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
-    private static partial int Open(string path, int flags);
+    private static partial int Open(string path, int flags, int mode);
 
     [LibraryImport("libc", EntryPoint = "statx", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
     private static partial int Statx(int directoryDescriptor, string path, int flags, uint mask, out StatxBuffer buffer);
