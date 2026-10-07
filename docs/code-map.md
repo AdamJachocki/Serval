@@ -84,6 +84,12 @@ Corresponding tests:
 tests/Serval.Application.Tests/Services/
 ```
 
+`src/Serval.Application/Ipc/` contains the fixed typed Web-to-Agent request
+and result protocol. `Services/ISystemServiceIdentityInventory.cs` carries
+canonical service IDs and aliases to the Agent policy boundary.
+`Authorization/IAgentPolicyStore.cs` defines the grant and audit contract used
+by Agent authorization; its SQLite implementation is in Infrastructure.
+
 ---
 
 ### `src/Serval.Systemd`
@@ -194,9 +200,8 @@ Real-systemd and D-Bus integration tests are also located in this project.
 
 General infrastructure project.
 
-There is currently no substantive implementation in this module.
-
-Use this project for non-systemd infrastructure implementations that satisfy application-facing abstractions.
+`Policy/AgentPolicyStore.cs` implements the Agent-owned SQLite grant and audit
+store. The Agent alone opens its root-only database.
 
 Corresponding test project:
 
@@ -227,7 +232,10 @@ src/Serval.Web/
 
 `wwwroot/` contains static web assets. Vendored libraries under `wwwroot/lib/` normally do not need to be inspected during application work.
 
-The project is currently close to the default Razor Pages scaffold and does not yet contain the main Serval UI.
+`AgentIpcClient.cs` sends typed local socket requests. `ServalSessionCookie.cs`
+holds the opaque Agent session in a browser session cookie. `Pages/` contains
+login, logout, filtered service inventory and inspection, and administrator
+grant management. Web has no direct PAM, policy-database or systemd access.
 
 ---
 
@@ -235,15 +243,22 @@ The project is currently close to the default Razor Pages scaffold and does not 
 
 Privileged process boundary.
 
-Current entry point:
+Current entry points:
 
 ```text
 src/Serval.Agent/Program.cs
+src/Serval.Agent/AgentSocketServer.cs
+src/Serval.Agent/AgentDispatcher.cs
+src/Serval.Agent/AgentConfiguration.cs
 ```
 
-The Agent is currently inert and does not yet expose privileged operations or IPC.
-
-Future privileged execution, IPC hosting, and Agent-side composition will start in this project.
+`Program.cs` validates root-owned deployment configuration and composes the
+Agent. `AgentSocketServer` checks kernel peer credentials and bounds local
+connections. `AgentDispatcher` validates and authorizes the seven allowed
+operations. `AgentSessions`, `LinuxPam` and `LinuxAccountChecks` own session,
+PAM and current Linux identity checks. `Serval.Systemd` provides read-only
+service inventory and inspection, and its `SystemdProtectedServicePolicy`
+checks protected identities before results are published.
 
 Before working here, consult the privileged-operation documentation and applicable agent skill.
 
@@ -257,8 +272,8 @@ Production projects currently have these corresponding test projects:
 | `Serval.Application`    | `tests/Serval.Application.Tests`    |
 | `Serval.Infrastructure` | `tests/Serval.Infrastructure.Tests` |
 | `Serval.Systemd`        | `tests/Serval.Systemd.Tests`        |
-
-`Serval.Web` and `Serval.Agent` do not currently have dedicated test projects.
+| `Serval.Web`            | `tests/Serval.Web.Tests`            |
+| `Serval.Agent`          | `tests/Serval.Agent.Tests`          |
 
 ### systemd integration tests
 
@@ -279,6 +294,8 @@ tests/Serval.Systemd.Tests/
 ```
 
 `Fixtures/` contains the disposable Linux/systemd test environment and supporting scripts.
+`tests/Serval.Agent.Tests/RealSystemdAgentAuthorizationTests.cs` runs Agent
+authorization against those disposable fixtures in the Linux CI matrix.
 
 ## Documentation and specifications
 
@@ -294,6 +311,7 @@ Current documents cover areas including:
 * service identity,
 * environment handling,
 * protected services.
+* identity and authorization deployment (`identity-deployment.md`).
 
 Consult the relevant document before changing an established technical strategy.
 
@@ -365,6 +383,8 @@ Start with `ci.yml` when changing build, test, integration-test, or repository q
 | ------------------------------------ | ------------------------------------------------------------------ |
 | Domain representation of a service   | `src/Serval.Domain/Services/`                                      |
 | Application service contracts        | `src/Serval.Application/Services/`                                 |
+| Web-to-Agent protocol                 | `src/Serval.Application/Ipc/`                                      |
+| Grant and audit persistence           | `src/Serval.Infrastructure/Policy/`                                |
 | Service discovery                    | `src/Serval.Systemd/SystemdServiceEnumerator.cs`                   |
 | Service inspection                   | `src/Serval.Systemd/SystemdServiceInspector.cs`                    |
 | Application-facing systemd inventory | `src/Serval.Systemd/SystemdServiceInventory.cs`                    |

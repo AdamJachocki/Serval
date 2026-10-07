@@ -1,0 +1,23 @@
+[Unit]
+Description=Serval privileged local agent
+After=systemd-user-sessions.service
+Before=serval-web.service
+
+[Service]
+Type=simple
+User=root
+Group=serval-web
+WorkingDirectory=/opt/serval/agent
+ExecStart=/opt/serval/agent/Serval.Agent
+RuntimeDirectory=serval
+RuntimeDirectoryMode=0750
+StateDirectory=serval
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+ProtectHome=yes
+ProtectSystem=strict
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

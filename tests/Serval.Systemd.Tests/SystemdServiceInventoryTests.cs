@@ -29,6 +29,44 @@ public sealed class SystemdServiceInventoryTests
         Assert.False(services[1].IsProtected);
     }
 
+    [Fact]
+    public async Task AgentIdentityListRetainsCanonicalNameAndEveryAlias()
+    {
+        var service = Service("worker@tenant.service", "active", "running");
+        var names = new[]
+        {
+            new SystemServiceId("helper@tenant.service"),
+            new SystemServiceId("worker-alias@tenant.service"),
+            service.Id,
+        };
+        var inventory = Create(new ServiceEnumerationSnapshot(
+            [new EnumeratedSystemService(service, names)], []));
+
+        var identities = await inventory.ListIdentitiesAsync(TestContext.Current.CancellationToken);
+
+        var identity = Assert.Single(identities);
+        Assert.Equal("worker@tenant.service", identity.Service.Id.Value);
+        Assert.Equal(["helper@tenant.service", "worker-alias@tenant.service", "worker@tenant.service"],
+            identity.Names.Select(name => name.Value));
+    }
+
+    [Fact]
+    public async Task AgentIdentityInspectionRetainsResolvedAliases()
+    {
+        var service = Service("canonical.service", "active", "running");
+        var alias = new SystemServiceId("alias.service");
+        var inventory = new SystemdServiceInventory(
+            _ => throw new InvalidOperationException(),
+            (_, _) => Task.FromResult<SystemdServiceInspectionResult>(
+                new SystemdServiceInspectionResult.Found(service, [alias, service.Id])));
+
+        var result = await inventory.InspectIdentityAsync(alias, TestContext.Current.CancellationToken);
+
+        var identity = Assert.IsType<ServiceIdentityInspectionResult.Found>(result).Identity;
+        Assert.Equal(service.Id, identity.Service.Id);
+        Assert.Equal(["alias.service", "canonical.service"], identity.Names.Select(name => name.Value));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -43,7 +81,7 @@ public sealed class SystemdServiceInventoryTests
             {
                 observed = serviceId;
                 return Task.FromResult<SystemdServiceInspectionResult>(found
-                    ? new SystemdServiceInspectionResult.Found(canonical, [canonical.Id, requested])
+                    ? new SystemdServiceInspectionResult.Found(canonical, [requested, canonical.Id])
                     : new SystemdServiceInspectionResult.NotFound(requested));
             });
 

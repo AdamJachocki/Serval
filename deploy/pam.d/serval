@@ -1,0 +1,3 @@
+# Linux-PAM policy for Serval on Debian/Ubuntu systems.
+@include common-auth
+@include common-account

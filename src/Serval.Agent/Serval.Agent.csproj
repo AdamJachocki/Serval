@@ -1,9 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RuntimeIdentifiers>linux-x64;linux-arm64</RuntimeIdentifiers>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Serval.Application\Serval.Application.csproj" />
+    <ProjectReference Include="..\Serval.Infrastructure\Serval.Infrastructure.csproj" />
+    <ProjectReference Include="..\Serval.Systemd\Serval.Systemd.csproj" />
   </ItemGroup>
 </Project>

@@ -1,0 +1,21 @@
+@page
+@model Serval.Web.Pages.Services.DetailsModel
+@{
+    ViewData["Title"] = "Service details";
+}
+
+<h1>Service details</h1>
+@if (Model.Error is not null)
+{
+    <div class="alert alert-warning" role="alert">@Model.Error</div>
+}
+else if (Model.Service is not null)
+{
+    <dl class="row">
+        <dt class="col-sm-3">Canonical name</dt><dd class="col-sm-9">@Model.Service.Id</dd>
+        <dt class="col-sm-3">Description</dt><dd class="col-sm-9">@Model.Service.Description</dd>
+        <dt class="col-sm-3">Load</dt><dd class="col-sm-9">@Model.Service.LoadState</dd>
+        <dt class="col-sm-3">Active</dt><dd class="col-sm-9">@Model.Service.ActiveState</dd>
+        <dt class="col-sm-3">Sub-state</dt><dd class="col-sm-9">@Model.Service.SubState</dd>
+    </dl>
+}

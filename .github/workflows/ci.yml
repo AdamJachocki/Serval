@@ -33,6 +33,9 @@ jobs:
       - name: Restore locked dependencies
         run: dotnet restore Serval.slnx --locked-mode
 
+      - name: Verify Web service identity deployment checks
+        run: bash tests/Serval.Agent.Tests/Fixtures/test-web-identity.sh
+
       - name: Verify formatting
         run: dotnet format Serval.slnx --verify-no-changes --no-restore
 
@@ -93,10 +96,14 @@ jobs:
       - name: Publish self-contained contract test
         run: dotnet publish tests/Serval.Systemd.Tests/Serval.Systemd.Tests.csproj --configuration Release --runtime ${{ matrix.runtime }} --self-contained true --no-restore --output .artifacts/serval-systemd-contract
 
+      - name: Publish self-contained Agent authorization test
+        run: dotnet publish tests/Serval.Agent.Tests/Serval.Agent.Tests.csproj --configuration Release --runtime ${{ matrix.runtime }} --self-contained true --no-restore --output .artifacts/serval-agent-contract
+
       - name: Verify typed systemd D-Bus contract
         env:
           SERVAL_EXPECTED_SYSTEMD_MAJOR: ${{ matrix.systemd_major }}
-        run: sudo --preserve-env=SERVAL_EXPECTED_SYSTEMD_MAJOR bash tests/Serval.Systemd.Tests/Fixtures/run-enumeration-tests.sh .artifacts/serval-systemd-contract/Serval.Systemd.Tests -noColor
+          SERVAL_AGENT_TEST_EXECUTABLE: ${{ github.workspace }}/.artifacts/serval-agent-contract/Serval.Agent.Tests
+        run: sudo --preserve-env=SERVAL_EXPECTED_SYSTEMD_MAJOR,SERVAL_AGENT_TEST_EXECUTABLE bash tests/Serval.Systemd.Tests/Fixtures/run-enumeration-tests.sh .artifacts/serval-systemd-contract/Serval.Systemd.Tests -noColor
 
       - name: Verify cleanup after a failing run
         if: always()
@@ -135,6 +142,9 @@ jobs:
       - name: Publish self-contained contract test
         run: dotnet publish tests/Serval.Systemd.Tests/Serval.Systemd.Tests.csproj --configuration Release --runtime ${{ matrix.runtime }} --self-contained true --no-restore --output .artifacts/serval-systemd-contract
 
+      - name: Publish self-contained Agent authorization test
+        run: dotnet publish tests/Serval.Agent.Tests/Serval.Agent.Tests.csproj --configuration Release --runtime ${{ matrix.runtime }} --self-contained true --no-restore --output .artifacts/serval-systemd-contract/agent-tests
+
       - name: Build Debian 13 systemd fixture
         run: docker build --tag serval-debian-systemd --file tests/Serval.Systemd.Tests/Fixtures/DebianSystemd.Dockerfile .
 
@@ -152,7 +162,7 @@ jobs:
           exit 1
 
       - name: Verify typed systemd D-Bus contract
-        run: docker exec --env SERVAL_EXPECTED_SYSTEMD_MAJOR=257 --env SERVAL_REAL_SYSTEMD_TESTS=1 serval-debian-systemd bash /fixtures/run-enumeration-tests.sh /tests/Serval.Systemd.Tests -noColor
+        run: docker exec --env SERVAL_EXPECTED_SYSTEMD_MAJOR=257 --env SERVAL_REAL_SYSTEMD_TESTS=1 --env SERVAL_AGENT_TEST_EXECUTABLE=/tests/agent-tests/Serval.Agent.Tests serval-debian-systemd bash /fixtures/run-enumeration-tests.sh /tests/Serval.Systemd.Tests -noColor
 
       - name: Verify cleanup after a failing run
         if: always()

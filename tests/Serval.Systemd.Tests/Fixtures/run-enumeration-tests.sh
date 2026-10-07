@@ -622,6 +622,14 @@ journal_before="$(snapshot_inactive_journal)"
 export SERVAL_REAL_SYSTEMD_TESTS=1
 export SERVAL_REQUIRE_REAL_SYSTEMD_TESTS=1
 "$@"
+if [[ -n "${SERVAL_AGENT_TEST_EXECUTABLE:-}" ]]; then
+    agent_test="$(realpath -e -- "$SERVAL_AGENT_TEST_EXECUTABLE")"
+    if [[ ! -x "$agent_test" ]]; then
+        printf 'The Agent authorization test executable is unavailable.\n' >&2
+        exit 1
+    fi
+    "$agent_test" -noColor
+fi
 assert_discovery_states
 assert_templates_unloaded
 lifecycle_after="$(snapshot_runtime_lifecycle)"

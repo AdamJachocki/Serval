@@ -1,0 +1,29 @@
+@page
+@model Serval.Web.Pages.Services.IndexModel
+@{
+    ViewData["Title"] = "Services";
+}
+
+<h1>Services</h1>
+@if (Model.Error is not null)
+{
+    <div class="alert alert-warning" role="alert">@Model.Error</div>
+}
+else
+{
+    <table class="table">
+        <thead><tr><th>Service</th><th>Description</th><th>Load</th><th>Active</th><th>Sub-state</th></tr></thead>
+        <tbody>
+        @foreach (var service in Model.Services)
+        {
+            <tr>
+                <td><a asp-page="/Services/Details" asp-route-service="@service.Id">@service.Id</a></td>
+                <td>@service.Description</td>
+                <td>@service.LoadState</td>
+                <td>@service.ActiveState</td>
+                <td>@service.SubState</td>
+            </tr>
+        }
+        </tbody>
+    </table>
+}
