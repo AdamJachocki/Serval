@@ -19,11 +19,13 @@ public sealed partial record AgentConfiguration(
     private const int OpenCloseOnExec = 0x80000;
     private const int OpenNoFollow = 0x20000;
     private const int OpenDirectory = 0x10000;
-    private const int AtFdcwd = -100;
     private const int AtEmptyPath = 0x1000;
     private const int NoSuchFile = 2;
+    private const int InvalidArgument = 22;
+    private const int OpenPathOnly = 0x200000;
     private const ulong ResolveNoMagicLinks = 0x02;
     private const ulong ResolveNoSymlinks = 0x04;
+    private const ulong ResolveBeneath = 0x08;
     private const long OpenAt2SystemCall = 437;
     private const uint StatxBasicStats = 0x07ff;
     private const ushort TypeMask = 0xf000;
@@ -84,10 +86,13 @@ public sealed partial record AgentConfiguration(
             throw new InvalidOperationException("Agent policy directory is unsafe.");
         }
 
-        var descriptor = OpenPath(policyPath, OpenReadOnly | OpenCloseOnExec | OpenNoFollow);
+        var descriptor = OpenPath(
+            policyPath,
+            OpenReadOnly | OpenCloseOnExec | OpenNoFollow,
+            out var openError);
         if (descriptor < 0)
         {
-            if (Marshal.GetLastPInvokeError() == NoSuchFile)
+            if (openError == NoSuchFile)
             {
                 return;
             }
@@ -174,10 +179,14 @@ public sealed partial record AgentConfiguration(
 
     private static SafeFileHandle OpenSafe(string path, int extraFlags, ushort expectedType)
     {
-        var descriptor = OpenPath(path, OpenReadOnly | OpenCloseOnExec | OpenNoFollow | extraFlags);
+        var descriptor = OpenPath(
+            path,
+            OpenReadOnly | OpenCloseOnExec | OpenNoFollow | extraFlags,
+            out var openError);
         if (descriptor < 0)
         {
-            throw new InvalidOperationException("Agent configuration path is unavailable.");
+            throw new InvalidOperationException(
+                $"Agent configuration path is unavailable (native error {openError}).");
         }
 
         var handle = new SafeFileHandle((IntPtr)descriptor, ownsHandle: true);
@@ -192,23 +201,42 @@ public sealed partial record AgentConfiguration(
         return handle;
     }
 
-    private static int OpenPath(string path, int flags)
+    private static int OpenPath(string path, int flags, out int error)
     {
+        if (path.Length < 2 || path[0] != '/')
+        {
+            error = InvalidArgument;
+            return -1;
+        }
+
+        var rootDescriptor = Open("/", OpenPathOnly | OpenCloseOnExec, 0);
+        if (rootDescriptor < 0)
+        {
+            error = Marshal.GetLastPInvokeError();
+            return -1;
+        }
+
+        using var root = new SafeFileHandle(rootDescriptor, ownsHandle: true);
         var how = new OpenHow
         {
             Flags = (ulong)flags,
-            Resolve = ResolveNoMagicLinks | ResolveNoSymlinks,
+            Resolve = ResolveBeneath | ResolveNoMagicLinks | ResolveNoSymlinks,
         };
-        return (int)SyscallOpenAt2(
+        var descriptor = (int)SyscallOpenAt2(
             OpenAt2SystemCall,
-            AtFdcwd,
-            path,
+            rootDescriptor,
+            path[1..],
             ref how,
             (nuint)Marshal.SizeOf<OpenHow>());
+        error = descriptor < 0 ? Marshal.GetLastPInvokeError() : 0;
+        return descriptor;
     }
 
     [LibraryImport("libc", EntryPoint = "geteuid")]
     private static partial uint Geteuid();
+
+    [LibraryImport("libc", EntryPoint = "open", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
+    private static partial int Open(string path, int flags, int mode);
 
     [LibraryImport("libc", EntryPoint = "syscall", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
     private static partial long SyscallOpenAt2(
