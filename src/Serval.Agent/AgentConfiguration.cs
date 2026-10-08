@@ -19,8 +19,12 @@ public sealed partial record AgentConfiguration(
     private const int OpenCloseOnExec = 0x80000;
     private const int OpenNoFollow = 0x20000;
     private const int OpenDirectory = 0x10000;
+    private const int AtFdcwd = -100;
     private const int AtEmptyPath = 0x1000;
     private const int NoSuchFile = 2;
+    private const ulong ResolveNoMagicLinks = 0x02;
+    private const ulong ResolveNoSymlinks = 0x04;
+    private const long OpenAt2SystemCall = 437;
     private const uint StatxBasicStats = 0x07ff;
     private const ushort TypeMask = 0xf000;
     private const ushort RegularFile = 0x8000;
@@ -80,7 +84,7 @@ public sealed partial record AgentConfiguration(
             throw new InvalidOperationException("Agent policy directory is unsafe.");
         }
 
-        var descriptor = Open(policyPath, OpenReadOnly | OpenCloseOnExec | OpenNoFollow, 0);
+        var descriptor = OpenPath(policyPath, OpenReadOnly | OpenCloseOnExec | OpenNoFollow);
         if (descriptor < 0)
         {
             if (Marshal.GetLastPInvokeError() == NoSuchFile)
@@ -170,7 +174,7 @@ public sealed partial record AgentConfiguration(
 
     private static SafeFileHandle OpenSafe(string path, int extraFlags, ushort expectedType)
     {
-        var descriptor = Open(path, OpenReadOnly | OpenCloseOnExec | OpenNoFollow | extraFlags, 0);
+        var descriptor = OpenPath(path, OpenReadOnly | OpenCloseOnExec | OpenNoFollow | extraFlags);
         if (descriptor < 0)
         {
             throw new InvalidOperationException("Agent configuration path is unavailable.");
@@ -188,14 +192,42 @@ public sealed partial record AgentConfiguration(
         return handle;
     }
 
+    private static int OpenPath(string path, int flags)
+    {
+        var how = new OpenHow
+        {
+            Flags = (ulong)flags,
+            Resolve = ResolveNoMagicLinks | ResolveNoSymlinks,
+        };
+        return (int)SyscallOpenAt2(
+            OpenAt2SystemCall,
+            AtFdcwd,
+            path,
+            ref how,
+            (nuint)Marshal.SizeOf<OpenHow>());
+    }
+
     [LibraryImport("libc", EntryPoint = "geteuid")]
     private static partial uint Geteuid();
 
-    [LibraryImport("libc", EntryPoint = "open", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
-    private static partial int Open(string path, int flags, int mode);
+    [LibraryImport("libc", EntryPoint = "syscall", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
+    private static partial long SyscallOpenAt2(
+        long number,
+        int directoryDescriptor,
+        string path,
+        ref OpenHow how,
+        nuint size);
 
     [LibraryImport("libc", EntryPoint = "statx", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
     private static partial int Statx(int directoryDescriptor, string path, int flags, uint mask, out StatxBuffer buffer);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct OpenHow
+    {
+        internal ulong Flags;
+        internal ulong Mode;
+        internal ulong Resolve;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct StatxTimestamp
