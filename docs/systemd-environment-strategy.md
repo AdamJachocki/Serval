@@ -432,17 +432,17 @@ from a broken observer or a signal still queued for delivery.
 
 | Requirement / construction | Focused managed evidence | Full-flow real-systemd evidence | Required/current platform evidence |
 | --- | --- | --- | --- |
-| Fixed, output-free oracle and bounded versioned manifest, including absent names and malformed inputs | `EnvironmentOracleTests` | Helper exit status is checked by `run-enumeration-tests.sh` before product observation | Windows managed: passed; WSL Ubuntu 24.04 x64/systemd 255: passed; supported CI matrix: passed in `36421042215` |
-| `Environment=` only; reset; duplicates; empty, escaped, literal and expanded specifier values | `LoadedEnvironmentDecoderTests`, `SystemdEnvironmentComposerTests` | `ComposesFixtureOwnedUniverseToPrivateManifest(environment, false)` | Ubuntu 22.04/24.04/26.04 and Debian 13, x64/ARM64: passed in `36421042215` |
-| One file; ordered multiple and repeated files; optional present/absent; manager/file conflicts; both reset categories | `EnvironmentFileParserTests`, `SystemdEnvironmentComposerTests` | `ReadsManagerOrderedRepeatedRuntimeSourcesAndPreservesFixtureBytes`, `ComposesFixtureOwnedUniverseToPrivateManifest(source, false)` | Supported matrix: passed in `36421042215` |
-| Base/template/instance drop-ins, concrete instance and alias canonicalization | identity/source-reader focused suites | `ComposesFixtureOwnedUniverseToPrivateManifest(source, false/true)` | Supported matrix: passed in `36421042215` |
-| Quoted, continuation and multiline file grammar | `EnvironmentFileParserTests` | Private-manifest source fixture; baseline-divergence tests remain parser-specific | Supported matrix: passed in `36421042215` |
-| Required absence, unsafe symlink and special source; active Unset/Pass; transient; generated; pattern; unresolved specifier | `SystemdEnvironmentSourceReaderTests.RejectsUnsupportedConfigurationBeforeFileAccess` and safe-file tests | `RejectsRepresentableFailureWithoutPartialValues` | Supported matrix: passed in `36421042215` |
+| Fixed, output-free oracle and bounded versioned manifest, including absent names and malformed inputs | `EnvironmentOracleTests` | Helper exit status is checked by `run-enumeration-tests.sh` before product observation | Windows managed: passed; WSL Ubuntu 24.04 x64/systemd 255: passed; supported CI matrix: passed in `37931432633` |
+| `Environment=` only; reset; duplicates; empty, escaped, literal and expanded specifier values | `LoadedEnvironmentDecoderTests`, `SystemdEnvironmentComposerTests` | `ComposesFixtureOwnedUniverseToPrivateManifest(environment, false)` | Ubuntu 22.04/24.04/26.04 and Debian 13, x64/ARM64: passed in `37931432633` |
+| One file; ordered multiple and repeated files; optional present/absent; manager/file conflicts; both reset categories | `EnvironmentFileParserTests`, `SystemdEnvironmentComposerTests` | `ReadsManagerOrderedRepeatedRuntimeSourcesAndPreservesFixtureBytes`, `ComposesFixtureOwnedUniverseToPrivateManifest(source, false)` | Supported matrix: passed in `37931432633` |
+| Base/template/instance drop-ins, concrete instance and alias canonicalization | identity/source-reader focused suites | `ComposesFixtureOwnedUniverseToPrivateManifest(source, false/true)` | Supported matrix: passed in `37931432633` |
+| Quoted, continuation and multiline file grammar | `EnvironmentFileParserTests` | Private-manifest source fixture; baseline-divergence tests remain parser-specific | Supported matrix: passed in `37931432633` |
+| Required absence, unsafe symlink and special source; active Unset/Pass; transient; generated; pattern; unresolved specifier | `SystemdEnvironmentSourceReaderTests.RejectsUnsupportedConfigurationBeforeFileAccess` and safe-file tests | `RejectsRepresentableFailureWithoutPartialValues` | Supported matrix: passed in `37931432633` |
 | Unknown property and malformed typed manager replies | `SystemdEnvironmentSourceReaderTests`, `SystemdDbusTransportTests` | Intentionally non-representable on a conforming manager | Windows managed: passed; real-systemd: intentionally non-representable |
-| Protected canonical/alias/privileged-family targets, lookalike control, malformed/template and nonexistent identifiers | `SystemdServiceEnvironmentReaderTests` | `FailsClosedForRequiredMissingUnsupportedAndProtectedTargets` plus disposable lookalike fixtures | Supported matrix: passed in `36421042215` |
-| Source/configuration mutation, optional appearance/disappearance and manager/service disappearance | deterministic source-reader/application-reader race tests | `RejectsDeterministicFixtureRaceWithoutPartialPublication`, configuration and manager disappearance cases | Supported matrix: passed in `36421042215` |
-| No source/config write, lifecycle action or manager reload during product read | reader policy tests | `ProductObservation` holds file identities/content and lifecycle/journal hashes; its direct manager `Reloading(bool)` observer is proved by a harness-owned reload cycle and bounded by D-Bus barriers | Supported matrix: passed in `36421042215` |
-| Secret leakage and cleanup after success/failure | serialization, disposal and buffer-clearing tests | In-memory scan of helper output, journal and serialized result; `verify-failing-cleanup.sh` requires the deliberate command's exact status `73`, a marker written only after final `daemon-reload`, and absence from manager state, runtime units, generator inputs/outputs and the private fixture root | Supported matrix: passed in `36421042215` |
+| Protected canonical/alias/privileged-family targets, lookalike control, malformed/template and nonexistent identifiers | `SystemdServiceEnvironmentReaderTests` | `FailsClosedForRequiredMissingUnsupportedAndProtectedTargets` plus disposable lookalike fixtures | Supported matrix: passed in `37931432633` |
+| Source/configuration mutation, optional appearance/disappearance and manager/service disappearance | deterministic source-reader/application-reader race tests | `RejectsDeterministicFixtureRaceWithoutPartialPublication`, configuration and manager disappearance cases | Supported matrix: passed in `37931432633` |
+| No source/config write, lifecycle action or manager reload during product read | reader policy tests | `ProductObservation` holds file identities/content and lifecycle/journal hashes; its direct manager `Reloading(bool)` observer is proved by a harness-owned reload cycle and bounded by D-Bus barriers | Supported matrix: passed in `37931432633` |
+| Secret leakage and cleanup after success/failure | serialization, disposal and buffer-clearing tests | In-memory scan of helper output, journal and serialized result; `verify-failing-cleanup.sh` requires the deliberate command's exact status `73`, a marker written only after final `daemon-reload`, and absence from manager state, runtime units, generator inputs/outputs and the private fixture root | Supported matrix: passed in `37931432633` |
 
 The first public M2.8 matrix run was
 [`36405071726`](https://github.com/AdamJachocki/Serval/actions/runs/36405071726).
@@ -458,15 +458,36 @@ and uses `Type=exec` for those process-environment fixtures. The earlier failure
 remain recorded as the diagnostic baseline rather than being replaced by local
 evidence.
 
-The follow-up CI run
+The earlier follow-up CI run
 [`36421042215`](https://github.com/AdamJachocki/Serval/actions/runs/36421042215)
-executed the current branch tip `ae9cef5d457fa713389fd6831ebde5036e76a201`.
+executed branch revision `ae9cef5d457fa713389fd6831ebde5036e76a201`.
 All six Ubuntu 22.04/24.04/26.04 x64/ARM64 cells and both Debian 13 x64/ARM64
 cells passed. Each successful job also completed the always-run deliberate
 failure-cleanup verification, so this run closes the platform evidence gap left
 by `36405071726`.
 
 | CI cell in `36421042215` | Full-flow harness | Deliberate failure cleanup |
+| --- | --- | --- |
+| Ubuntu 22.04 x64 / systemd 249 | passed | passed |
+| Ubuntu 22.04 ARM64 / systemd 249 | passed | passed |
+| Ubuntu 24.04 x64 / systemd 255 | passed | passed |
+| Ubuntu 24.04 ARM64 / systemd 255 | passed | passed |
+| Ubuntu 26.04 x64 / systemd 259 | passed | passed |
+| Ubuntu 26.04 ARM64 / systemd 259 | passed | passed |
+| Debian 13 x64 / systemd 257 | passed | passed |
+| Debian 13 ARM64 / systemd 257 | passed | passed |
+
+The final verification run
+[`37931432633`](https://github.com/AdamJachocki/Serval/actions/runs/37931432633)
+executed revision `f6fd91a590e6cc9056f04637590e5001961c115b`, including the
+journal synchronization barriers, completion-safe source oracle and Web test-host
+fix. All eight supported systemd cells and their deliberate failure-cleanup steps
+passed. The managed format, locked restore, build and test job also passed, and
+the matching CodeQL run
+[`37931432638`](https://github.com/AdamJachocki/Serval/actions/runs/37931432638)
+completed successfully.
+
+| CI cell in `37931432633` | Full-flow harness | Deliberate failure cleanup |
 | --- | --- | --- |
 | Ubuntu 22.04 x64 / systemd 249 | passed | passed |
 | Ubuntu 22.04 ARM64 / systemd 249 | passed | passed |
@@ -491,7 +512,7 @@ passed with 417 passed and 42 platform-appropriate skips, and self-contained
 artifact passed all 385 tests in the disposable Debian 13/systemd 257 container,
 followed by the deliberate failure-cleanup verifier. An earlier self-contained
 `linux-x64` publication also passed the full disposable harness and cleanup
-verifier in WSL Ubuntu 24.04/systemd 255. GitHub Actions run `36421042215`
+verifier in WSL Ubuntu 24.04/systemd 255. GitHub Actions run `37931432633`
 provides the separate passed evidence for all six Ubuntu and both Debian cells.
 
 Semantics reference: [systemd.exec](https://raw.githubusercontent.com/systemd/systemd/main/man/systemd.exec.xml),
