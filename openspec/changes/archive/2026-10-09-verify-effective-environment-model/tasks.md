@@ -35,4 +35,4 @@
 ## 6. Completion gates
 
 - [x] 6.1 Run locked restore, formatting verification, Release build with warnings as errors, the complete managed suite, applicable helper publish tests, real-systemd harness, and strict OpenSpec validation; record every gate as passed, failed, skipped, or unverified with a reason and confirm reports contain no generated values.
-- [ ] 6.2 Perform the issue #41 acceptance self-check against the proposal/design and the repository's post-change review workflow; address blocking findings, repeat affected gates, and obtain a fresh independent `VERDICT: APPROVED` before marking the change complete.
+- [x] 6.2 Perform the issue #41 acceptance self-check against the proposal/design and the repository's post-change review workflow; address blocking findings, repeat affected gates, and obtain a fresh independent `VERDICT: APPROVED` before marking the change complete.
