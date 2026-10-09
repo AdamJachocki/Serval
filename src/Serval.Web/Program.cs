@@ -14,11 +14,18 @@ builder.Services.AddRazorPages(options =>
         Location = ResponseCacheLocation.None,
         NoStore = true,
     }));
-var keyDirectory = OperatingSystem.IsLinux()
-    ? "/var/lib/serval-web/keys"
-    : Path.Combine(builder.Environment.ContentRootPath, "artifacts", "web-keys");
-Directory.CreateDirectory(keyDirectory);
-builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(keyDirectory));
+if (builder.Environment.IsEnvironment("Testing"))
+{
+    builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();
+}
+else
+{
+    var keyDirectory = OperatingSystem.IsLinux()
+        ? "/var/lib/serval-web/keys"
+        : Path.Combine(builder.Environment.ContentRootPath, "artifacts", "web-keys");
+    Directory.CreateDirectory(keyDirectory);
+    builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(keyDirectory));
+}
 builder.Services.AddSingleton<IAgentIpcClient, AgentIpcClient>();
 
 var app = builder.Build();

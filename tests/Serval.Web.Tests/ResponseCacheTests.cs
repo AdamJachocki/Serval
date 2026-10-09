@@ -17,10 +17,14 @@ public sealed class ResponseCacheTests
     public async Task SessionDependentPagesDisableHttpCaching(string path)
     {
         await using var factory = new WebApplicationFactory<Program>()
-            .WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+            .WithWebHostBuilder(builder =>
             {
-                services.AddSingleton<IAgentIpcClient, PermittingAgentClient>();
-            }));
+                builder.UseEnvironment("Testing");
+                builder.ConfigureTestServices(services =>
+                {
+                    services.AddSingleton<IAgentIpcClient, PermittingAgentClient>();
+                });
+            });
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
         {
             AllowAutoRedirect = false,
