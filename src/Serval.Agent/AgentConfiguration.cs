@@ -17,8 +17,6 @@ public sealed partial record AgentConfiguration(
 
     private const int OpenReadOnly = 0;
     private const int OpenCloseOnExec = 0x80000;
-    private const int OpenNoFollow = 0x20000;
-    private const int OpenDirectory = 0x10000;
     private const int AtEmptyPath = 0x1000;
     private const int NoSuchFile = 2;
     private const int InvalidArgument = 22;
@@ -42,8 +40,8 @@ public sealed partial record AgentConfiguration(
             throw new InvalidOperationException("Agent requires Linux root identity.");
         }
 
-        using var directory = OpenSafe(directoryPath, OpenDirectory, DirectoryType);
-        using var file = OpenSafe(filePath, 0, RegularFile);
+        using var directory = OpenSafe(directoryPath, readContent: false, DirectoryType);
+        using var file = OpenSafe(filePath, readContent: true, RegularFile);
         using var stream = new FileStream(file, FileAccess.Read);
         if (stream.Length is <= 0 or > 4096)
         {
@@ -63,7 +61,7 @@ public sealed partial record AgentConfiguration(
 
     internal void ValidateRuntimeDirectory(string path)
     {
-        using var directory = OpenSafe(path, OpenDirectory, DirectoryType);
+        using var directory = OpenSafe(path, readContent: false, DirectoryType);
         if (Statx(directory.DangerousGetHandle().ToInt32(), string.Empty,
                 AtEmptyPath, StatxBasicStats, out var stat) != 0 ||
             stat.GroupId != WebGid ||
@@ -78,7 +76,7 @@ public sealed partial record AgentConfiguration(
 
     internal static void ValidatePolicyLocation(string directoryPath, string policyPath)
     {
-        using var directory = OpenSafe(directoryPath, OpenDirectory, DirectoryType);
+        using var directory = OpenSafe(directoryPath, readContent: false, DirectoryType);
         if (Statx(directory.DangerousGetHandle().ToInt32(), string.Empty,
                 AtEmptyPath, StatxBasicStats, out var stat) != 0 ||
             (stat.Mode & 0x01ff) != 0x01c0)
@@ -88,7 +86,7 @@ public sealed partial record AgentConfiguration(
 
         var descriptor = OpenPath(
             policyPath,
-            OpenReadOnly | OpenCloseOnExec | OpenNoFollow,
+            OpenPathOnly | OpenCloseOnExec,
             out var openError);
         if (descriptor < 0)
         {
@@ -113,7 +111,7 @@ public sealed partial record AgentConfiguration(
 
     internal static void ValidatePamService(string path)
     {
-        using var file = OpenSafe(path, 0, RegularFile);
+        using var file = OpenSafe(path, readContent: false, RegularFile);
     }
 
     public static AgentConfiguration Parse(JsonElement root)
@@ -177,11 +175,11 @@ public sealed partial record AgentConfiguration(
         return number;
     }
 
-    private static SafeFileHandle OpenSafe(string path, int extraFlags, ushort expectedType)
+    private static SafeFileHandle OpenSafe(string path, bool readContent, ushort expectedType)
     {
         var descriptor = OpenPath(
             path,
-            OpenReadOnly | OpenCloseOnExec | OpenNoFollow | extraFlags,
+            (readContent ? OpenReadOnly : OpenPathOnly) | OpenCloseOnExec,
             out var openError);
         if (descriptor < 0)
         {
