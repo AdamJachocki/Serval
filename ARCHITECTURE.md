@@ -89,6 +89,9 @@ Domain <- Application <- Web
 Domain and application layers must not depend on infrastructure-specific implementations.
 
 Technology-specific integrations should remain behind application-facing abstractions.
+Host composition may reference the concrete adapters it instantiates;
+authorization logic in `Serval.Agent` depends on the application-facing grant
+and audit contract, while the SQLite implementation stays in Infrastructure.
 
 ## Runtime boundaries
 
@@ -109,6 +112,15 @@ It performs narrowly defined operations that require elevated Linux privileges.
 The Agent is a trust boundary and must expose specific capabilities rather than acting as a generic shell, command runner, or unrestricted filesystem API.
 
 Communication between Web and Agent is local-only.
+
+The current boundary is a fixed Unix Domain Socket at `/run/serval/agent.sock`.
+The Agent verifies the connecting Web process's kernel UID and owns PAM
+authentication, in-memory sessions, service authorization, grant storage and
+audit. Web renders the Agent's filtered results and holds only an opaque session
+credential in a browser session cookie. The Agent provides typed login, logout,
+service read and grant-management operations; it does not provide general
+command or filesystem access. See [`docs/identity-deployment.md`](docs/identity-deployment.md)
+for the deployed identities and paths.
 
 ## External boundaries
 

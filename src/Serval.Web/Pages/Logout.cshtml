@@ -1,0 +1,14 @@
+@page
+@model LogoutModel
+@{
+    ViewData["Title"] = "Sign out";
+}
+
+<h1>Sign out</h1>
+@if (Model.Error is not null)
+{
+    <div class="alert alert-danger" role="alert">@Model.Error</div>
+}
+<form method="post">
+    <button type="submit" class="btn btn-primary">Try again</button>
+</form>

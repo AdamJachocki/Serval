@@ -6,7 +6,7 @@ namespace Serval.Systemd;
 /// <summary>
 /// Provides the application-facing, read-only system service inventory.
 /// </summary>
-public sealed class SystemdServiceInventory : ISystemServiceInventory
+public sealed class SystemdServiceInventory : ISystemServiceInventory, ISystemServiceIdentityInventory
 {
     private readonly Func<CancellationToken, Task<ServiceEnumerationSnapshot>> _enumerate;
     private readonly Func<SystemServiceId, CancellationToken, Task<SystemdServiceInspectionResult>> _inspect;
@@ -31,22 +31,50 @@ public sealed class SystemdServiceInventory : ISystemServiceInventory
 
     public async Task<IReadOnlyList<SystemService>> ListAsync(CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        var snapshot = await _enumerate(cancellationToken).ConfigureAwait(false);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        var services = snapshot.Services
-            .OrderBy(item => item.Service.Id.Value, StringComparer.Ordinal)
-            .Select(item => ToApplicationService(item.Service, item.IsProtected))
+        var identities = await ListIdentitiesAsync(cancellationToken).ConfigureAwait(false);
+        var services = identities
+            .Select(item => item.Service)
             .ToArray();
 
         cancellationToken.ThrowIfCancellationRequested();
         return Array.AsReadOnly(services);
     }
 
+    public async Task<IReadOnlyList<SystemServiceIdentity>> ListIdentitiesAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var snapshot = await _enumerate(cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var identities = snapshot.Services
+            .OrderBy(item => item.Service.Id.Value, StringComparer.Ordinal)
+            .Select(item => new SystemServiceIdentity(
+                ToApplicationService(item.Service, item.IsProtected), item.Names))
+            .ToArray();
+
+        cancellationToken.ThrowIfCancellationRequested();
+        return Array.AsReadOnly(identities);
+    }
+
     public async Task<ServiceInspectionResult> InspectAsync(
         SystemServiceId serviceId,
         CancellationToken cancellationToken)
+    {
+        var result = await InspectIdentityAsync(serviceId, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return result switch
+        {
+            ServiceIdentityInspectionResult.Found found =>
+                new ServiceInspectionResult.Found(found.Identity.Service),
+            ServiceIdentityInspectionResult.NotFound notFound =>
+                new ServiceInspectionResult.NotFound(notFound.ServiceId),
+            _ => throw new InvalidOperationException("Unsupported system service inspection result."),
+        };
+    }
+
+    public async Task<ServiceIdentityInspectionResult> InspectIdentityAsync(
+        SystemServiceId serviceId, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(serviceId);
         cancellationToken.ThrowIfCancellationRequested();
@@ -56,10 +84,10 @@ public sealed class SystemdServiceInventory : ISystemServiceInventory
         return result switch
         {
             SystemdServiceInspectionResult.Found found =>
-                new ServiceInspectionResult.Found(
-                    ToApplicationService(found.Service, found.IsProtected)),
+                new ServiceIdentityInspectionResult.Found(new SystemServiceIdentity(
+                    ToApplicationService(found.Service, found.IsProtected), found.Names)),
             SystemdServiceInspectionResult.NotFound notFound =>
-                new ServiceInspectionResult.NotFound(notFound.ServiceId),
+                new ServiceIdentityInspectionResult.NotFound(notFound.ServiceId),
             _ => throw new InvalidOperationException("Unsupported system service inspection result."),
         };
     }

@@ -1,0 +1,49 @@
+@page
+@model Serval.Web.Pages.Grants.IndexModel
+@{
+    ViewData["Title"] = "Grants";
+}
+
+<h1>Service grants</h1>
+@if (Model.Error is not null)
+{
+    <div class="alert alert-warning" role="alert">@Model.Error</div>
+}
+<form method="post" asp-page-handler="Add" class="mb-4">
+    <div class="mb-3">
+        <label asp-for="SubjectKind" class="form-label">Subject type</label>
+        <select asp-for="SubjectKind" class="form-select">
+            <option value="User">User</option>
+            <option value="Group">Group</option>
+        </select>
+    </div>
+    <div class="mb-3">
+        <label asp-for="Subject" class="form-label">Linux account or group</label>
+        <input asp-for="Subject" class="form-control" />
+    </div>
+    <div class="mb-3">
+        <label asp-for="Service" class="form-label">Canonical service name</label>
+        <input asp-for="Service" class="form-control" placeholder="example.service" />
+    </div>
+    <button type="submit" class="btn btn-primary">Grant Service.View</button>
+</form>
+
+<table class="table">
+    <thead><tr><th>Subject</th><th>Operation</th><th>Service</th><th></th></tr></thead>
+    <tbody>
+    @foreach (var grant in Model.Grants)
+    {
+        <tr>
+            <td>@grant.SubjectKind: @grant.Subject</td>
+            <td>@grant.Operation</td>
+            <td>@grant.Service</td>
+            <td>
+                <form method="post" asp-page-handler="Remove">
+                    <input type="hidden" name="GrantId" value="@grant.Id" />
+                    <button type="submit" class="btn btn-outline-danger btn-sm">Remove</button>
+                </form>
+            </td>
+        </tr>
+    }
+    </tbody>
+</table>

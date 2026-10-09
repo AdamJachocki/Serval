@@ -1,0 +1,23 @@
+[Unit]
+Description=Serval web application
+Requires=serval-agent.service
+After=network.target serval-agent.service
+
+[Service]
+Type=simple
+User=serval-web
+Group=serval-web
+WorkingDirectory=/opt/serval/web
+ExecStart=/opt/serval/web/Serval.Web
+Environment=ASPNETCORE_ENVIRONMENT=Production
+StateDirectory=serval-web
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+ProtectHome=yes
+ProtectSystem=strict
+PrivateTmp=yes
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

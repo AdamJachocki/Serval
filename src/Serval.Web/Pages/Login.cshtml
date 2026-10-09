@@ -1,0 +1,25 @@
+@page
+@model LoginModel
+@{
+    ViewData["Title"] = "Sign in";
+}
+
+<h1>Sign in</h1>
+<p>Use your Linux account.</p>
+@if (Model.Error is not null)
+{
+    <div class="alert alert-danger" role="alert">@Model.Error</div>
+}
+<form method="post">
+    <div class="mb-3">
+        <label asp-for="Username" class="form-label"></label>
+        <input asp-for="Username" class="form-control" autocomplete="username" />
+        <span asp-validation-for="Username" class="text-danger"></span>
+    </div>
+    <div class="mb-3">
+        <label asp-for="Password" class="form-label"></label>
+        <input asp-for="Password" type="password" class="form-control" autocomplete="current-password" />
+        <span asp-validation-for="Password" class="text-danger"></span>
+    </div>
+    <button type="submit" class="btn btn-primary">Sign in</button>
+</form>
