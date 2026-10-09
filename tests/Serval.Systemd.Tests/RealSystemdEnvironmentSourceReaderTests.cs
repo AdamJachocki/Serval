@@ -607,6 +607,7 @@ public sealed class RealSystemdEnvironmentSourceReaderTests
                     "/usr/bin/systemctl",
                     ["show", "--no-pager", "--property=ActiveState,SubState,InvocationID,StateChangeTimestampMonotonic,ExecMainStartTimestampMonotonic,ExecMainExitTimestampMonotonic", unitName],
                     cancellationToken).ConfigureAwait(false);
+                await SynchronizeJournalAsync(cancellationToken).ConfigureAwait(false);
                 journalHash = await SnapshotCommandAsync(
                     "/usr/bin/journalctl",
                     ["--quiet", "--unit=" + unitName, "--no-pager", "--output=short-monotonic"],
@@ -657,6 +658,7 @@ public sealed class RealSystemdEnvironmentSourceReaderTests
                 "/usr/bin/systemctl",
                 ["show", "--no-pager", "--property=ActiveState,SubState,InvocationID,StateChangeTimestampMonotonic,ExecMainStartTimestampMonotonic,ExecMainExitTimestampMonotonic", _unitName],
                 cancellationToken).ConfigureAwait(false);
+            await SynchronizeJournalAsync(cancellationToken).ConfigureAwait(false);
             var journalAfter = await SnapshotCommandAsync(
                 "/usr/bin/journalctl",
                 ["--quiet", "--unit=" + _unitName, "--no-pager", "--output=short-monotonic"],
@@ -729,6 +731,15 @@ public sealed class RealSystemdEnvironmentSourceReaderTests
                 CryptographicOperations.ZeroMemory(output.GetBuffer().AsSpan(0, checked((int)output.Length)));
                 CryptographicOperations.ZeroMemory(error.GetBuffer().AsSpan(0, checked((int)error.Length)));
             }
+        }
+
+        private static async Task SynchronizeJournalAsync(CancellationToken cancellationToken)
+        {
+            var outputHash = await SnapshotCommandAsync(
+                "/usr/bin/journalctl",
+                ["--sync"],
+                cancellationToken).ConfigureAwait(false);
+            CryptographicOperations.ZeroMemory(outputHash);
         }
 
         private static async Task AwaitManagerSignalBarrierAsync(CancellationToken cancellationToken)

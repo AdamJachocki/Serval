@@ -280,7 +280,7 @@ mkdir -m 700 -- "$source_instance_dropin"
 [Unit]
 Description=Serval ordered source reader fixture
 [Service]
-Type=simple
+Type=oneshot
 Environment=REMOVED=$marker
 Environment=BASE_REMOVED=$marker-base
 EnvironmentFile=$source_two
@@ -515,11 +515,6 @@ if ! systemctl start "$environment_name" >> "$oracle_output" 2>&1 ||
     done
     exit 1
 fi
-: > "$oracle_journal"
-chmod 600 -- "$oracle_journal"
-journalctl --quiet --unit="$environment_name" --unit="$source_name" \
-    --no-pager --output=cat > "$oracle_journal"
-journalctl --sync
 assert_oracle_success() {
     local result
     local status
@@ -532,6 +527,11 @@ assert_oracle_success() {
 }
 assert_oracle_success "$environment_name"
 assert_oracle_success "$source_name"
+: > "$oracle_journal"
+chmod 600 -- "$oracle_journal"
+journalctl --sync
+journalctl --quiet --unit="$environment_name" --unit="$source_name" \
+    --no-pager --output=cat > "$oracle_journal"
 assert_state() {
     local unit="$1"
     local property

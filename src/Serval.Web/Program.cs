@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Mvc;
 using Serval.Web;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -6,7 +7,13 @@ builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 
 // Add services to the container.
-builder.Services.AddRazorPages();
+builder.Services.AddRazorPages(options =>
+    options.Conventions.ConfigureFilter(new ResponseCacheAttribute
+    {
+        Duration = 0,
+        Location = ResponseCacheLocation.None,
+        NoStore = true,
+    }));
 var keyDirectory = OperatingSystem.IsLinux()
     ? "/var/lib/serval-web/keys"
     : Path.Combine(builder.Environment.ContentRootPath, "artifacts", "web-keys");
@@ -35,3 +42,5 @@ app.MapRazorPages()
    .WithStaticAssets();
 
 await app.RunAsync();
+
+public partial class Program;
