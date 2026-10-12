@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/" />
   <Folder Name="/tests/">
+    <Project Path="tests/Serval.Agent.FixtureClient/Serval.Agent.FixtureClient.csproj" />
     <Project Path="tests/Serval.Agent.Tests/Serval.Agent.Tests.csproj" />
     <Project Path="tests/Serval.Application.Tests/Serval.Application.Tests.csproj" />
     <Project Path="tests/Serval.Domain.Tests/Serval.Domain.Tests.csproj" />
