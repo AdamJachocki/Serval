@@ -80,3 +80,28 @@ The Compose fixture has no host bind mounts, named volumes, published ports,
 Docker socket, Linux account or PAM mounts. Its build context sends only the
 existing Dockerfile. Its privileged container setting is for this disposable systemd test
 only. The separate real-systemd contract matrix still uses its own CI harness.
+
+## Disposable Agent PAM Docker fixture
+
+Use Docker Desktop in Linux-container mode (or a Linux Docker Engine), PowerShell
+7 and the repository's .NET SDK. From the repository root run:
+
+```powershell
+pwsh -NoProfile -File tests/Serval.Agent.Tests/Fixtures/test-docker-agent-pam.ps1
+```
+
+The runner publishes the Linux Agent and a small typed IPC client using locked
+dependencies, stages only those outputs and the deployed PAM/unit files, and
+builds a separate Debian 13 image. It runs systemd and the root Agent in a
+disposable container without host mounts or published ports. After startup it
+creates local login accounts and generates a new password in memory, passing it
+only through Docker's stdin pipe to `chpasswd` and the test client. The password
+is never supplied as an argument, environment variable or build input. The
+runner prints result categories, never credentials or session tokens.
+
+It checks the socket owner and modes, Web peer UID, PAM success and denials, and
+fail-closed startup for unsafe deployment state. A passing run prints
+`Agent Docker PAM fixture passed.` It removes its own container, images and
+temporary build context even on failure. To verify failure cleanup locally,
+run the same command with `-InjectFailureAfterStart`; that invocation must fail
+after container creation, and no `serval-agent-pam-*` container should remain.
