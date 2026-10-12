@@ -10,6 +10,6 @@
 
 ## 3. CI and local use
 
-- [ ] 3.1 Add a focused Linux CI smoke gate invoking the Compose runner, preserving the current Debian x64/ARM64 real-systemd contract matrix; verify the new gate passes and existing matrix configuration remains intact.
+- [x] 3.1 Add a focused Linux CI smoke gate invoking the Compose runner, preserving the current Debian x64/ARM64 real-systemd contract matrix; verify the new gate passes and existing matrix configuration remains intact.
 - [x] 3.2 Document Docker Desktop with Linux containers: build/start, manager query, stop, expected result, cleanup and requirements in the relevant developer guide; verify the documented commands complete on Docker Desktop without mounting host accounts, PAM, repository data, the Docker socket or other host data.
-- [ ] 3.3 Complete the applicable repository checks and independent post-change review; verify all mandatory gates pass and the latest reviewer returns `VERDICT: APPROVED`.
+- [x] 3.3 Complete the applicable repository checks and independent post-change review; verify all mandatory gates pass and the latest reviewer returns `VERDICT: APPROVED`.
