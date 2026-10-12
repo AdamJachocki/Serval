@@ -57,3 +57,26 @@ Complete the pull request template and identify:
 - follow-up work that should remain separate.
 
 All CI checks must pass with warnings treated as errors. Maintainers may request additional negative-path, integration, or platform-specific testing proportional to risk.
+
+## Debian 13 systemd Compose smoke test
+
+Use Docker Desktop in Linux-container mode (or a Linux Docker Engine), Docker Compose v2, and PowerShell 7. From the repository root, run:
+
+```powershell
+pwsh -NoProfile -File tests/Serval.Systemd.Tests/Fixtures/test-compose-systemd.ps1
+```
+
+The script builds the existing Debian 13 CI Dockerfile, starts systemd as PID 1,
+waits up to 90 seconds for a healthcheck that queries the live manager, queries
+`systemctl` again, then asks Compose to stop the container within 30 seconds.
+It expects a running, healthy container before stop and exit code 0 or 130
+afterward; Docker Desktop has been observed to report 130 for this systemd
+shutdown signal. A forced kill (137) and an OOM kill fail the test.
+It always runs `docker compose down --remove-orphans`; on failure it saves the
+last 100 container log lines to an ignored `Fixtures/artifacts/` file and
+prints that file's path, without echoing log content to CI output.
+
+The Compose fixture has no host bind mounts, named volumes, published ports,
+Docker socket, Linux account or PAM mounts. Its build context sends only the
+existing Dockerfile. Its privileged container setting is for this disposable systemd test
+only. The separate real-systemd contract matrix still uses its own CI harness.
