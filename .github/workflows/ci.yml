@@ -45,6 +45,21 @@ jobs:
       - name: Test
         run: dotnet test --solution Serval.slnx --configuration Release --no-build --no-restore --report-trx --report-trx-filename "test-results_{asm}_{tfm}_{arch}.trx"
 
+  docker-systemd-smoke:
+    name: Debian 13 systemd Compose startup
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Verify Compose systemd lifecycle
+        shell: pwsh
+        run: |
+          ./tests/Serval.Systemd.Tests/Fixtures/test-compose-systemd-failures.ps1
+          ./tests/Serval.Systemd.Tests/Fixtures/test-compose-systemd.ps1
+
   real-systemd-contract-ubuntu:
     name: systemd D-Bus contract (${{ matrix.name }})
     strategy:
