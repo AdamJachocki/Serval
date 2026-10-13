@@ -1,5 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <RuntimeIdentifiers>linux-x64;linux-arm64</RuntimeIdentifiers>
+    <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+    <DockerComposeProjectPath>..\..\eng\visual-studio-compose\Serval.VisualStudioCompose.dcproj</DockerComposeProjectPath>
+    <DockerfileFile>..\..\eng\visual-studio-compose\Dockerfile</DockerfileFile>
+    <DockerfileContext>..\..\artifacts\docker-visual-studio\context</DockerfileContext>
+  </PropertyGroup>
+
   <ItemGroup>
+    <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" />
     <ProjectReference Include="..\Serval.Application\Serval.Application.csproj" />
   </ItemGroup>
 </Project>

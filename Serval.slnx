@@ -10,6 +10,9 @@
     <Project Path="tests/Serval.Systemd.Tests/Serval.Systemd.Tests.csproj" />
     <Project Path="tests/Serval.Web.Tests/Serval.Web.Tests.csproj" />
   </Folder>
+  <Project Path="eng/visual-studio-compose/Serval.VisualStudioCompose.dcproj">
+    <Build />
+  </Project>
   <Project Path="src/Serval.Agent/Serval.Agent.csproj" />
   <Project Path="src/Serval.Application/Serval.Application.csproj" />
   <Project Path="src/Serval.Domain/Serval.Domain.csproj" />

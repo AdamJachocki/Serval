@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json.schemastore.org/launchsettings.json",
+  "profiles": {
+    "Serval systemd Web": {
+      "commandName": "DockerCompose",
+      "commandVersion": "1.0",
+      "composeLaunchServiceName": "serval",
+      "serviceActions": {
+        "serval": "StartDebugging"
+      },
+      "composeLaunchAction": "LaunchBrowser",
+      "composeLaunchUrl": "http://localhost:5123/Login"
+    }
+  }
+}

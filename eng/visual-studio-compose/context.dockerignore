@@ -1,0 +1,9 @@
+*
+!Dockerfile
+!agent/
+!agent/**
+!web/
+!web/**
+!serval.pam
+!start-agent.sh
+!verify-development-host.sh

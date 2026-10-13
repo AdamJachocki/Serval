@@ -2,6 +2,12 @@
   "version": 2,
   "dependencies": {
     "net10.0": {
+      "Microsoft.VisualStudio.Azure.Containers.Tools.Targets": {
+        "type": "Direct",
+        "requested": "[1.23.0, )",
+        "resolved": "1.23.0",
+        "contentHash": "2wDnb4umupJZ/1ikgWozFVpggH1mlHQFc0odXVv2ZagL3RYwXgW9zmC15fiqIBzmaC0vLZUnLGwDY+p8ZR7Syw=="
+      },
       "serval.application": {
         "type": "Project",
         "dependencies": {
@@ -11,6 +17,8 @@
       "serval.domain": {
         "type": "Project"
       }
-    }
+    },
+    "net10.0/linux-arm64": {},
+    "net10.0/linux-x64": {}
   }
 }
