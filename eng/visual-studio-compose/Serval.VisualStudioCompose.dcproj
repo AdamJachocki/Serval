@@ -1,0 +1,27 @@
+<Project ToolsVersion="15.0" Sdk="Microsoft.Docker.Sdk">
+  <PropertyGroup Label="Globals">
+    <ProjectVersion>2.1</ProjectVersion>
+    <DockerTargetOS>Linux</DockerTargetOS>
+    <DockerDevelopmentMode>Fast</DockerDevelopmentMode>
+    <DockerLaunchAction>LaunchBrowser</DockerLaunchAction>
+    <DockerServiceName>serval</DockerServiceName>
+    <DockerServiceUrl>http://localhost:5123/Login</DockerServiceUrl>
+    <DockerComposeBaseFilePath>docker-compose</DockerComposeBaseFilePath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="docker-compose.yml" />
+    <None Include="docker-compose.vs.debug.yml">
+      <DependentUpon>docker-compose.yml</DependentUpon>
+    </None>
+    <None Include="Properties\launchSettings.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Serval.Web\Serval.Web.csproj" />
+  </ItemGroup>
+
+  <Target Name="PrepareServalDockerContext" BeforeTargets="DockerComposeBuild;Build">
+    <Exec Command="pwsh -NoProfile -File &quot;$(MSBuildProjectDirectory)\prepare-context.ps1&quot;" />
+  </Target>
+</Project>

@@ -59,8 +59,8 @@ rules:
 
 operations:
   apply:
-    - Follow the repository workflow defined in CONTRIBUTING.md.
     guidance:
+      - Follow the repository workflow defined in CONTRIBUTING.md.
       - Follow AGENTS.md and every applicable project skill and workflow.
       - Treat the OpenSpec artifacts as the implementation contract; do not silently implement behavior outside them.
       - If implementation reveals a material flaw or missing requirement in the plan, update the relevant OpenSpec artifacts before continuing.

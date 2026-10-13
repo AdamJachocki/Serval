@@ -42,7 +42,7 @@ local changes to switch branches.
 - Keep pull requests focused and explain the security impact.
 - Preserve the dependency direction documented in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 - Do not add speculative abstractions, packages, or project references.
-- Treat all environment-variable values and credentials as secrets. Never place them in source, test output, snapshots, logs, exceptions, telemetry, SQLite, issues, or pull requests.
+- Treat all production, operator-provided and dynamically generated credentials as secrets. Never place them in source, test output, snapshots, logs, exceptions, telemetry, SQLite, issues, or pull requests. A fixed credential may appear only when an accepted specification explicitly defines it as public test data for a disposable local-development fixture; keep it out of every production artifact and label it prominently where developers use it.
 - Add tests that demonstrate meaningful behavior. Security-sensitive and privileged changes require permitted and denied paths plus applicable malicious-input cases.
 - Critical systemd behavior must eventually be verified on real Linux/systemd in CI; mocks cannot be the only evidence.
 - Update documentation when behavior, trust boundaries, operator expectations, or security assumptions change.
@@ -57,6 +57,15 @@ Complete the pull request template and identify:
 - follow-up work that should remain separate.
 
 All CI checks must pass with warnings treated as errors. Maintainers may request additional negative-path, integration, or platform-specific testing proportional to risk.
+
+## Visual Studio F5 development login
+
+The one-container Visual Studio Compose profile contains the public disposable
+Linux account `serval-dev` with password `serval`. Use it only to exercise the
+local F5 browser login flow. It is intentionally not a production credential,
+is not configurable as a production default, and must never be copied into the
+deployment scripts, systemd units, or operator documentation. The technical
+`serval-web` account remains locked and cannot be used for interactive login.
 
 ## Debian 13 systemd Compose smoke test
 
