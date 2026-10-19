@@ -50,7 +50,7 @@ rules:
         - Explicitly identify any architectural decision that should be promoted to permanent project documentation.
         - Do not silently weaken existing security invariants to simplify implementation.
 
-    tasks: 
+    tasks: |
         - Make every task independently verifiable.
         - Include automated tests required by the specification.
         - Include negative-path tests for security-sensitive behavior.
