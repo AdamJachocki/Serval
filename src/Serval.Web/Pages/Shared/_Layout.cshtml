@@ -26,11 +26,23 @@
                         <li class="nav-item">
                             <a class="nav-link text-dark" asp-area="" asp-page="/Grants/Index">Grants</a>
                         </li>
-                        <li class="nav-item">
-                            <form method="post" asp-page="/Logout">
-                                <button type="submit" class="nav-link text-dark btn btn-link">Sign out</button>
-                            </form>
-                        </li>
+                        @if (User.Identity?.IsAuthenticated == true)
+                        {
+                            <li class="nav-item">
+                                <span class="nav-link text-dark">@User.Identity.Name</span>
+                            </li>
+                            <li class="nav-item">
+                                <form method="post" asp-page="/Logout">
+                                    <button type="submit" class="nav-link text-dark btn btn-link">Sign out</button>
+                                </form>
+                            </li>
+                        }
+                        else
+                        {
+                            <li class="nav-item">
+                                <a class="nav-link text-dark" asp-page="/Login">Sign in</a>
+                            </li>
+                        }
                     </ul>
                 </div>
             </div>

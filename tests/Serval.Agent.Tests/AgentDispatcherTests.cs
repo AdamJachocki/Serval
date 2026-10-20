@@ -12,6 +12,85 @@ namespace Serval.Agent.Tests;
 public sealed class AgentDispatcherTests
 {
     [Fact]
+    public async Task ValidationReturnsCurrentIdentityWithoutRefreshingIdleActivity()
+    {
+        var time = new ManualTimeProvider();
+        using var fixture = new Fixture(time);
+        fixture.Identities.Accounts["alice"] = Account("alice", 1002,
+            new LinuxGroup("operators", 500));
+        var login = Assert.IsType<AgentResult.Login>(await fixture.Dispatcher.DispatchAsync(
+            new AgentRequest.Login("validate-login", "alice", "synthetic"),
+            TestContext.Current.CancellationToken));
+        Assert.Equal(new AgentIdentity("alice", 1002), login.Identity);
+
+        time.Advance(TimeSpan.FromMinutes(14));
+        var valid = Assert.IsType<AgentResult.ValidateSession>(await fixture.Dispatcher.DispatchAsync(
+            new AgentRequest.ValidateSession("validate-ok", login.Session!),
+            TestContext.Current.CancellationToken));
+        Assert.Equal(AgentResultCode.Success, valid.Code);
+        Assert.Equal(new AgentIdentity("alice", 1002), valid.Identity);
+        Assert.Equal("Success", fixture.AuditOutcome("validate-ok"));
+
+        time.Advance(TimeSpan.FromMinutes(1));
+        var expired = Assert.IsType<AgentResult.ValidateSession>(await fixture.Dispatcher.DispatchAsync(
+            new AgentRequest.ValidateSession("validate-expired", login.Session!),
+            TestContext.Current.CancellationToken));
+        Assert.Equal(AgentResultCode.Unauthenticated, expired.Code);
+        Assert.Null(expired.Identity);
+    }
+
+    [Fact]
+    public async Task ValidationRejectsReplacedAccountLookupAndAuditFailures()
+    {
+        using var fixture = new Fixture();
+        fixture.Identities.Accounts["alice"] = Account("alice", 1002);
+        var session = await fixture.LoginAsync("alice");
+
+        fixture.Identities.Accounts["alice"] = Account("alice", 2002);
+        var replaced = Assert.IsType<AgentResult.ValidateSession>(await fixture.Dispatcher.DispatchAsync(
+            new AgentRequest.ValidateSession("validate-replaced", session),
+            TestContext.Current.CancellationToken));
+        Assert.Equal(AgentResultCode.Unauthenticated, replaced.Code);
+        Assert.Null(replaced.Identity);
+
+        var fresh = await fixture.LoginAsync("alice");
+        fixture.Identities.FailNss = true;
+        var lookupFailure = Assert.IsType<AgentResult.ValidateSession>(await fixture.Dispatcher.DispatchAsync(
+            new AgentRequest.ValidateSession("validate-lookup", fresh),
+            TestContext.Current.CancellationToken));
+        Assert.NotEqual(AgentResultCode.Success, lookupFailure.Code);
+        Assert.Null(lookupFailure.Identity);
+        fixture.Identities.FailNss = false;
+
+        fixture.PolicyFacade.ThrowOnAudit = true;
+        var auditFailure = Assert.IsType<AgentResult.ValidateSession>(await fixture.Dispatcher.DispatchAsync(
+            new AgentRequest.ValidateSession("validate-audit", fresh),
+            TestContext.Current.CancellationToken));
+        Assert.Equal(AgentResultCode.Unavailable, auditFailure.Code);
+        Assert.Null(auditFailure.Identity);
+    }
+
+    [Fact]
+    public async Task LoginPublishesIdentityReturnedByAccountChecks()
+    {
+        using var fixture = new Fixture();
+        var confirmed = Account("canonical", 1003);
+        fixture.Identities.Accounts["submitted-alias"] = confirmed;
+        fixture.Identities.Accounts["canonical"] = confirmed;
+
+        var result = Assert.IsType<AgentResult.Login>(await fixture.Dispatcher.DispatchAsync(
+            new AgentRequest.Login("confirmed-login", "submitted-alias", "synthetic"),
+            TestContext.Current.CancellationToken));
+
+        Assert.Equal(AgentResultCode.Success, result.Code);
+        Assert.Equal(new AgentIdentity("canonical", 1003), result.Identity);
+        var validation = Assert.IsType<AgentResult.ValidateSession>(await fixture.Dispatcher.DispatchAsync(
+            new AgentRequest.ValidateSession("confirmed-validation", result.Session!),
+            TestContext.Current.CancellationToken));
+        Assert.Equal(result.Identity, validation.Identity);
+    }
+
+    [Fact]
     public async Task ListFiltersProtectedAndUngrantableServicesBeforePublication()
     {
         using var fixture = new Fixture();
@@ -480,6 +559,8 @@ public sealed class AgentDispatcherTests
     {
         public bool ThrowOnList { get; set; }
 
+        public bool ThrowOnAudit { get; set; }
+
         public IReadOnlyList<StoredGrant> ListGrants() =>
             ThrowOnList ? throw new InvalidOperationException("Synthetic policy read failure") : inner.ListGrants();
 
@@ -487,7 +568,15 @@ public sealed class AgentDispatcherTests
 
         public bool RemoveGrant(long id, AuditEntry audit) => inner.RemoveGrant(id, audit);
 
-        public void AppendAudit(AuditEntry audit) => inner.AppendAudit(audit);
+        public void AppendAudit(AuditEntry audit)
+        {
+            if (ThrowOnAudit)
+            {
+                throw new InvalidOperationException("Synthetic audit failure");
+            }
+
+            inner.AppendAudit(audit);
+        }
     }
 
     private sealed class ManualTimeProvider : TimeProvider

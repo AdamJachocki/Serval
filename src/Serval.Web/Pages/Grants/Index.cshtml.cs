@@ -4,7 +4,10 @@ using Serval.Application.Ipc;
 
 namespace Serval.Web.Pages.Grants;
 
-public sealed class IndexModel(IAgentIpcClient agent) : PageModel
+public sealed class IndexModel(
+    IAgentIpcClient agent,
+    IAuthenticatedTicketAccessor ticketAccessor,
+    IInvalidSessionHandler invalidSession) : PageModel
 {
     [BindProperty]
     public string SubjectKind { get; set; } = "User";
@@ -27,10 +30,10 @@ public sealed class IndexModel(IAgentIpcClient agent) : PageModel
 
     public async Task<IActionResult> OnPostAddAsync(CancellationToken cancellationToken)
     {
-        var session = ServalSessionCookie.Read(Request);
+        var session = await ticketAccessor.GetSessionAsync(HttpContext).ConfigureAwait(false);
         if (session is null)
         {
-            return RedirectToPage("/Login");
+            return await invalidSession.ChallengeAsync(HttpContext).ConfigureAwait(false);
         }
 
         var result = (AgentResult.AddGrant)await agent.SendAsync(
@@ -43,8 +46,7 @@ public sealed class IndexModel(IAgentIpcClient agent) : PageModel
 
         if (result.Code == AgentResultCode.Unauthenticated)
         {
-            ServalSessionCookie.Clear(Response);
-            return RedirectToPage("/Login");
+            return await invalidSession.ChallengeAsync(HttpContext).ConfigureAwait(false);
         }
 
         Error = "Grant could not be added.";
@@ -53,10 +55,10 @@ public sealed class IndexModel(IAgentIpcClient agent) : PageModel
 
     public async Task<IActionResult> OnPostRemoveAsync(CancellationToken cancellationToken)
     {
-        var session = ServalSessionCookie.Read(Request);
+        var session = await ticketAccessor.GetSessionAsync(HttpContext).ConfigureAwait(false);
         if (session is null)
         {
-            return RedirectToPage("/Login");
+            return await invalidSession.ChallengeAsync(HttpContext).ConfigureAwait(false);
         }
 
         var result = (AgentResult.RemoveGrant)await agent.SendAsync(
@@ -69,8 +71,7 @@ public sealed class IndexModel(IAgentIpcClient agent) : PageModel
 
         if (result.Code == AgentResultCode.Unauthenticated)
         {
-            ServalSessionCookie.Clear(Response);
-            return RedirectToPage("/Login");
+            return await invalidSession.ChallengeAsync(HttpContext).ConfigureAwait(false);
         }
 
         Error = "Grant could not be removed.";
@@ -79,18 +80,17 @@ public sealed class IndexModel(IAgentIpcClient agent) : PageModel
 
     private async Task<IActionResult> LoadAsync(CancellationToken cancellationToken)
     {
-        var session = ServalSessionCookie.Read(Request);
+        var session = await ticketAccessor.GetSessionAsync(HttpContext).ConfigureAwait(false);
         if (session is null)
         {
-            return RedirectToPage("/Login");
+            return await invalidSession.ChallengeAsync(HttpContext).ConfigureAwait(false);
         }
 
         var result = (AgentResult.ListGrants)await agent.SendAsync(
             new AgentRequest.ListGrants(Guid.NewGuid().ToString("N"), session), cancellationToken);
         if (result.Code == AgentResultCode.Unauthenticated)
         {
-            ServalSessionCookie.Clear(Response);
-            return RedirectToPage("/Login");
+            return await invalidSession.ChallengeAsync(HttpContext).ConfigureAwait(false);
         }
 
         if (result.Code == AgentResultCode.Denied)

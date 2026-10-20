@@ -116,10 +116,15 @@ Communication between Web and Agent is local-only.
 The current boundary is a fixed Unix Domain Socket at `/run/serval/agent.sock`.
 The Agent verifies the connecting Web process's kernel UID and owns PAM
 authentication, in-memory sessions, service authorization, grant storage and
-audit. Web renders the Agent's filtered results and holds only an opaque session
-credential in a browser session cookie. The Agent provides typed login, logout,
-service read and grant-management operations; it does not provide general
-command or filesystem access. See [`docs/identity-deployment.md`](docs/identity-deployment.md)
+audit. Web renders the Agent's filtered results and uses ASP.NET Core cookie
+authentication to create a minimal name/UID principal from Agent-confirmed
+identity. The opaque Agent session credential is stored only in the protected
+authentication ticket's properties, not in claims or a separate raw cookie.
+Every authenticated request revalidates that credential and identity through
+the Agent; Web authentication never replaces the Agent's operation-specific
+authorization. The Agent provides eight typed operations: login, logout,
+session validation, service read and grant management. It does not provide
+general command or filesystem access. See [`docs/identity-deployment.md`](docs/identity-deployment.md)
 for the deployed identities and paths.
 
 ## External boundaries

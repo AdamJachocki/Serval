@@ -8,7 +8,7 @@ namespace Serval.Application.Ipc;
 /// <summary>Strict, length-prefixed UTF-8 JSON request codec. Invalid frames never dispatch.</summary>
 public static class AgentProtocol
 {
-    public const int Version = 1;
+    public const int Version = 2;
     public const int MaximumFrameBytes = 16 * 1024;
     public const int MaximumResultBytes = 1024 * 1024;
 
@@ -89,6 +89,8 @@ public static class AgentProtocol
                         GetString(fields, "username", 128), GetPassword(fields))),
                 "Logout" => WithFields(fields, ["version", "operation", "correlationId", "session"],
                     () => new AgentRequest.Logout(correlationId, GetString(fields, "session", 128))),
+                "ValidateSession" => WithFields(fields, ["version", "operation", "correlationId", "session"],
+                    () => new AgentRequest.ValidateSession(correlationId, GetString(fields, "session", 128))),
                 "ListServices" => WithFields(fields, ["version", "operation", "correlationId", "session"],
                     () => new AgentRequest.ListServices(correlationId, GetString(fields, "session", 128))),
                 "InspectService" => WithFields(fields,
@@ -190,8 +192,13 @@ public static class AgentProtocol
             await stream.ReadExactlyAsync(frame, cancellationToken).ConfigureAwait(false);
             using var document = JsonDocument.Parse(StrictUtf8.GetString(frame));
             var root = document.RootElement;
-            if (root.ValueKind != JsonValueKind.Object ||
-                !root.TryGetProperty("code", out var codeField) ||
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                throw new AgentProtocolException();
+            }
+
+            var fields = GetFields(root);
+            if (!fields.TryGetValue("code", out var codeField) ||
                 codeField.ValueKind != JsonValueKind.String ||
                 !Enum.TryParse<AgentResultCode>(codeField.GetString(), false, out var code) ||
                 !Enum.IsDefined(code))
@@ -201,14 +208,18 @@ public static class AgentProtocol
 
             if (code != AgentResultCode.Success)
             {
+                RequireFields(fields, ["code"]);
                 return FailureResult(request, code);
             }
 
             return request switch
             {
-                AgentRequest.Login => new AgentResult.Login(code,
-                    root.GetProperty("session").GetString()),
-                AgentRequest.Logout => new AgentResult.Logout(code),
+                AgentRequest.Login => WithFields(fields, ["code", "session", "identity"], () =>
+                    new AgentResult.Login(code, GetResultString(fields, "session", 128),
+                        GetIdentity(fields, "identity"))),
+                AgentRequest.Logout => WithFields(fields, ["code"], () => new AgentResult.Logout(code)),
+                AgentRequest.ValidateSession => WithFields(fields, ["code", "identity"], () =>
+                    new AgentResult.ValidateSession(code, GetIdentity(fields, "identity"))),
                 AgentRequest.ListServices => new AgentResult.ListServices(code,
                     JsonSerializer.Deserialize<AgentService[]>(root.GetProperty("services")) ??
                     throw new AgentProtocolException()),
@@ -237,8 +248,9 @@ public static class AgentProtocol
 
     private static AgentResult FailureResult(AgentRequest request, AgentResultCode code) => request switch
     {
-        AgentRequest.Login => new AgentResult.Login(code, null),
+        AgentRequest.Login => new AgentResult.Login(code, null, null),
         AgentRequest.Logout => new AgentResult.Logout(code),
+        AgentRequest.ValidateSession => new AgentResult.ValidateSession(code, null),
         AgentRequest.ListServices => new AgentResult.ListServices(code, null),
         AgentRequest.InspectService => new AgentResult.InspectService(code, null),
         AgentRequest.ListGrants => new AgentResult.ListGrants(code, null),
@@ -251,6 +263,7 @@ public static class AgentProtocol
     {
         AgentRequest.Login item => new { version = Version, operation = "Login", correlationId = item.CorrelationId, username = item.Username, password = item.Password },
         AgentRequest.Logout item => new { version = Version, operation = "Logout", correlationId = item.CorrelationId, session = item.Session },
+        AgentRequest.ValidateSession item => new { version = Version, operation = "ValidateSession", correlationId = item.CorrelationId, session = item.Session },
         AgentRequest.ListServices item => new { version = Version, operation = "ListServices", correlationId = item.CorrelationId, session = item.Session },
         AgentRequest.InspectService item => new { version = Version, operation = "InspectService", correlationId = item.CorrelationId, session = item.Session, service = item.Service },
         AgentRequest.ListGrants item => new { version = Version, operation = "ListGrants", correlationId = item.CorrelationId, session = item.Session },
@@ -261,8 +274,19 @@ public static class AgentProtocol
 
     private static object ToWireResult(AgentResult result) => result switch
     {
-        AgentResult.Login item => new { code = item.Code.ToString(), session = item.Session },
+        AgentResult item when item.Code != AgentResultCode.Success => new { code = item.Code.ToString() },
+        AgentResult.Login item when item.Code == AgentResultCode.Success => new
+        {
+            code = item.Code.ToString(),
+            session = item.Session,
+            identity = item.Identity is null ? null : new { name = item.Identity.Name, uid = item.Identity.Uid },
+        },
         AgentResult.Logout item => new { code = item.Code.ToString() },
+        AgentResult.ValidateSession item when item.Code == AgentResultCode.Success => new
+        {
+            code = item.Code.ToString(),
+            identity = item.Identity is null ? null : new { name = item.Identity.Name, uid = item.Identity.Uid },
+        },
         AgentResult.ListServices item => new { code = item.Code.ToString(), services = item.Services },
         AgentResult.InspectService item => new { code = item.Code.ToString(), service = item.Service },
         AgentResult.ListGrants item => new { code = item.Code.ToString(), grants = item.Grants },
@@ -273,12 +297,66 @@ public static class AgentProtocol
 
     private static T WithFields<T>(Dictionary<string, JsonElement> fields, string[] expected, Func<T> factory)
     {
+        RequireFields(fields, expected);
+
+        return factory();
+    }
+
+    private static Dictionary<string, JsonElement> GetFields(JsonElement root)
+    {
+        var fields = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        foreach (var property in root.EnumerateObject())
+        {
+            if (!fields.TryAdd(property.Name, property.Value))
+            {
+                throw new AgentProtocolException();
+            }
+        }
+
+        return fields;
+    }
+
+    private static void RequireFields(Dictionary<string, JsonElement> fields, string[] expected)
+    {
         if (fields.Count != expected.Length || fields.Keys.Any(key => !expected.Contains(key, StringComparer.Ordinal)))
         {
             throw new AgentProtocolException();
         }
+    }
 
-        return factory();
+    private static string GetResultString(Dictionary<string, JsonElement> fields, string key, int maximum)
+    {
+        if (!fields.TryGetValue(key, out var field) || field.ValueKind != JsonValueKind.String)
+        {
+            throw new AgentProtocolException();
+        }
+
+        var value = field.GetString()!;
+        if (value.Length is 0 || value.Length > maximum || value.Any(char.IsControl))
+        {
+            throw new AgentProtocolException();
+        }
+
+        return value;
+    }
+
+    private static AgentIdentity GetIdentity(Dictionary<string, JsonElement> fields, string key)
+    {
+        if (!fields.TryGetValue(key, out var identity) || identity.ValueKind != JsonValueKind.Object)
+        {
+            throw new AgentProtocolException();
+        }
+
+        var identityFields = GetFields(identity);
+        RequireFields(identityFields, ["name", "uid"]);
+        var name = GetResultString(identityFields, "name", 128);
+        if (!identityFields.TryGetValue("uid", out var uidField) ||
+            uidField.ValueKind != JsonValueKind.Number || !uidField.TryGetUInt32(out var uid))
+        {
+            throw new AgentProtocolException();
+        }
+
+        return new AgentIdentity(name, uid);
     }
 
     private static string GetString(Dictionary<string, JsonElement> fields, string key, int maximum)

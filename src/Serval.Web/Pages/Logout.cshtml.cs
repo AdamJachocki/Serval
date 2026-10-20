@@ -1,10 +1,14 @@
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Serval.Application.Ipc;
 
 namespace Serval.Web.Pages;
 
-public sealed class LogoutModel(IAgentIpcClient agent) : PageModel
+public sealed class LogoutModel(
+    IAgentIpcClient agent,
+    IAuthenticatedTicketAccessor ticketAccessor,
+    IInvalidSessionHandler invalidSession) : PageModel
 {
     public string? Error { get; private set; }
 
@@ -12,18 +16,17 @@ public sealed class LogoutModel(IAgentIpcClient agent) : PageModel
 
     public async Task<IActionResult> OnPostAsync(CancellationToken cancellationToken)
     {
-        var session = ServalSessionCookie.Read(Request);
+        var session = await ticketAccessor.GetSessionAsync(HttpContext).ConfigureAwait(false);
         if (session is null)
         {
-            ServalSessionCookie.Clear(Response);
-            return RedirectToPage("/Login");
+            return await invalidSession.ChallengeAsync(HttpContext).ConfigureAwait(false);
         }
 
         var result = (AgentResult.Logout)await agent.SendAsync(
             new AgentRequest.Logout(Guid.NewGuid().ToString("N"), session), cancellationToken);
         if (result.Code is AgentResultCode.Success or AgentResultCode.Unauthenticated)
         {
-            ServalSessionCookie.Clear(Response);
+            await HttpContext.SignOutAsync(ServalAuthentication.Scheme).ConfigureAwait(false);
             return RedirectToPage("/Login");
         }
 

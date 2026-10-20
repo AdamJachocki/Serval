@@ -39,7 +39,8 @@ try
     var sessions = new AgentSessions(configuration.IdleTimeout, identities, TimeProvider.System);
     var dispatcher = new AgentDispatcher(configuration, identities, sessions,
         policy, new SystemdServiceInventory(), TimeProvider.System);
-    var socket = new AgentSocketServer(configuration, dispatcher.DispatchAsync);
+    var socket = new AgentSocketServer(configuration, dispatcher.DispatchAsync,
+        token => sessions.Revoke(token));
     await socket.RunAsync(shutdown.Token);
     return 0;
 }

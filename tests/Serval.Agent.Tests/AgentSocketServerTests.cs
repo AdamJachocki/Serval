@@ -42,7 +42,7 @@ public sealed partial class AgentSocketServerTests
                 using (var malformed = await ConnectAsync(socketPath))
                 {
                     var stream = new NetworkStream(malformed, ownsSocket: false);
-                    var body = Encoding.UTF8.GetBytes("""{"version":1,"operation":"Logout","correlationId":"bad","session":"x","uid":0}""");
+                    var body = Encoding.UTF8.GetBytes("""{"version":2,"operation":"Logout","correlationId":"bad","session":"x","uid":0}""");
                     var header = new byte[4];
                     BinaryPrimitives.WriteInt32BigEndian(header, body.Length);
                     await stream.WriteAsync(header, TestContext.Current.CancellationToken);
@@ -60,7 +60,7 @@ public sealed partial class AgentSocketServerTests
                 Assert.Equal(1, Volatile.Read(ref dispatched));
 
                 using var stalled = await ConnectAsync(socketPath);
-                await Task.Delay(400, TestContext.Current.CancellationToken);
+                await Task.Delay(3200, TestContext.Current.CancellationToken);
                 Assert.Equal(0, await stalled.ReceiveAsync(new byte[1], SocketFlags.None,
                     TestContext.Current.CancellationToken));
                 Assert.Equal(1, Volatile.Read(ref dispatched));
@@ -76,12 +76,76 @@ public sealed partial class AgentSocketServerTests
         }
     }
 
+    [Fact]
+    public async Task UnpublishedLoginResultRevokesCreatedSession()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var uid = GetUid();
+        var directory = Path.Combine(Path.GetTempPath(), $"serval-socket-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var socketPath = Path.Combine(directory, "agent.sock");
+        var sessions = new AgentSessions(TimeSpan.FromMinutes(15), new AlwaysValidAccount(),
+            TimeProvider.System);
+        var revoked = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        string? issuedToken = null;
+        try
+        {
+            var configuration = new AgentConfiguration(uid, 1, "sudo", 1, TimeSpan.FromMinutes(15));
+            var server = new AgentSocketServer(configuration, async (_, _) =>
+            {
+                issuedToken = sessions.Create("alice", uid);
+                await Task.Delay(1200, TestContext.Current.CancellationToken);
+                return new AgentResult.Login(AgentResultCode.Success, issuedToken,
+                    new AgentIdentity("alice", uid));
+            }, token =>
+            {
+                sessions.Revoke(token);
+                revoked.TrySetResult(token);
+            }, socketPath, TimeSpan.FromSeconds(1));
+            using var stop = new CancellationTokenSource();
+            var run = server.RunAsync(stop.Token);
+            try
+            {
+                using var ready = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                while (!File.Exists(socketPath))
+                {
+                    await Task.Delay(10, ready.Token);
+                }
+
+                using var client = await ConnectAsync(socketPath);
+                using var stream = new NetworkStream(client, ownsSocket: false);
+                await AgentProtocol.WriteRequestAsync(stream,
+                    new AgentRequest.Login("login", "alice", "secret"),
+                    TestContext.Current.CancellationToken);
+
+                var revokedToken = await revoked.Task.WaitAsync(
+                    TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+                Assert.Equal(issuedToken, revokedToken);
+                Assert.Null(await sessions.AuthenticateAsync(
+                    revokedToken, TestContext.Current.CancellationToken));
+            }
+            finally
+            {
+                stop.Cancel();
+                await run;
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: false);
+        }
+    }
+
     private static async Task RunServerAsync(uint expectedUid, string socketPath,
         Func<Task> verify, Func<AgentRequest, Task<AgentResult>> dispatch)
     {
         var configuration = new AgentConfiguration(expectedUid, 1, "sudo", 1, TimeSpan.FromMinutes(15));
         var server = new AgentSocketServer(configuration, (request, _) => dispatch(request),
-            socketPath, TimeSpan.FromMilliseconds(200));
+            _ => { }, socketPath, TimeSpan.FromSeconds(3));
         using var stop = new CancellationTokenSource();
         var run = server.RunAsync(stop.Token);
         try
@@ -130,4 +194,10 @@ public sealed partial class AgentSocketServerTests
 
     [LibraryImport("libc", EntryPoint = "getuid")]
     private static partial uint GetUid();
+
+    private sealed class AlwaysValidAccount : IAgentAccountValidity
+    {
+        public Task<bool> IsCurrentAsync(string name, uint uid, CancellationToken cancellationToken) =>
+            Task.FromResult(true);
+    }
 }

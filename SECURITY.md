@@ -33,7 +33,7 @@ The authoritative development invariants are maintained in [`AGENTS.md`](AGENTS.
 
 `Serval.Web` runs under the dedicated unprivileged `serval-web` account. Only
 `Serval.Agent` runs as root. Its local Unix socket checks the connecting
-process's kernel UID. Every privileged request is parsed as one of seven typed
+process's kernel UID. Every privileged request is parsed as one of eight typed
 operations and checked again by the Agent; Web-supplied identity, role or
 service authorization is never authority. The Agent does not expose command
 execution, arbitrary filesystem access, environment values, or service
@@ -42,9 +42,15 @@ mutations through this protocol.
 The Agent authenticates Linux accounts with the `serval` PAM service and
 rechecks account status, Linux identity and group membership for authenticated
 requests. Session records exist only in Agent memory and disappear on restart.
-The browser cookie contains an opaque credential, is `Secure`, `HttpOnly`,
-`SameSite=Strict` and session-only. Client IP is not part of authentication or
-authorization. Anti-forgery validation protects browser POST actions.
+The browser receives one `Secure`, `HttpOnly`, `SameSite=Strict`, host-only,
+session-only ASP.NET Core authentication cookie. Data Protection encrypts and
+authenticates its ticket. The opaque Agent credential is stored in protected
+ticket properties and never in claims, rendered content, URLs or policy state.
+Minimal name and UID claims come only from Agent-confirmed Linux identity and
+are revalidated through the Agent on every authenticated request, without a
+cross-request positive cache. Validation and ticket renewal do not refresh
+Agent activity. Client IP is not part of authentication or authorization.
+Anti-forgery validation protects browser POST actions.
 
 Only current members of the configured existing host-admin group can manage
 Serval grants. The Agent owns the root-only SQLite grant and audit database.

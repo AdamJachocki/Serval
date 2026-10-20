@@ -45,6 +45,16 @@ public sealed class RealSystemdAgentAuthorizationTests
             var admin = await LoginAsync(dispatcher, "admin");
             var alice = await LoginAsync(dispatcher, "alice");
 
+            var validation = Assert.IsType<AgentResult.ValidateSession>(await dispatcher.DispatchAsync(
+                new AgentRequest.ValidateSession("real-validation", alice),
+                TestContext.Current.CancellationToken));
+            Assert.Equal(new AgentIdentity("alice", 1002), validation.Identity);
+            var forgedValidation = Assert.IsType<AgentResult.ValidateSession>(await dispatcher.DispatchAsync(
+                new AgentRequest.ValidateSession("real-forged-validation", "forged"),
+                TestContext.Current.CancellationToken));
+            Assert.Equal(AgentResultCode.Unauthenticated, forgedValidation.Code);
+            Assert.Null(forgedValidation.Identity);
+
             var adminList = Assert.IsType<AgentResult.ListServices>(await dispatcher.DispatchAsync(
                 new AgentRequest.ListServices("real-list-admin", admin), TestContext.Current.CancellationToken));
             Assert.Equal(AgentResultCode.Success, adminList.Code);
@@ -61,7 +71,7 @@ public sealed class RealSystemdAgentAuthorizationTests
             Assert.Empty(denied.Services!);
 
             var added = Assert.IsType<AgentResult.AddGrant>(await dispatcher.DispatchAsync(
-                new AgentRequest.AddGrant("real-grant", admin, "User", "alice", "Service.View", inactive),
+                new AgentRequest.AddGrant("real-grant", admin, "Group", "operators", "Service.View", inactive),
                 TestContext.Current.CancellationToken));
             Assert.Equal(AgentResultCode.Success, added.Code);
 
@@ -75,6 +85,17 @@ public sealed class RealSystemdAgentAuthorizationTests
                 TestContext.Current.CancellationToken));
             Assert.Equal(AgentResultCode.Success, byAlias.Code);
             Assert.Equal(inactive, byAlias.Service?.Id);
+
+            identities.AliceInOperators = false;
+            var validationAfterGroupRemoval = Assert.IsType<AgentResult.ValidateSession>(
+                await dispatcher.DispatchAsync(new AgentRequest.ValidateSession(
+                    "real-validation-after-group-removal", alice), TestContext.Current.CancellationToken));
+            Assert.Equal(AgentResultCode.Success, validationAfterGroupRemoval.Code);
+            var deniedAfterGroupRemoval = Assert.IsType<AgentResult.InspectService>(
+                await dispatcher.DispatchAsync(new AgentRequest.InspectService(
+                    "real-group-removed", alice, inactive), TestContext.Current.CancellationToken));
+            Assert.Equal(AgentResultCode.Denied, deniedAfterGroupRemoval.Code);
+            Assert.Null(deniedAfterGroupRemoval.Service);
 
             foreach (var target in new[] { lookalike, privileged, privilegedAlias,
                 "systemd-journald.service", prefix + "-worker@.service", "../bad.service" })
@@ -188,7 +209,12 @@ public sealed class RealSystemdAgentAuthorizationTests
     {
         private static readonly LinuxAccount Admin = new("admin", 1001, 1001,
             [new LinuxGroup("sudo", 27)]);
-        private static readonly LinuxAccount Alice = new("alice", 1002, 1002, []);
+        private static readonly LinuxGroup Operators = new("operators", 500);
+
+        public bool AliceInOperators { get; set; } = true;
+
+        private LinuxAccount Alice => new("alice", 1002, 1002,
+            AliceInOperators ? [Operators] : []);
 
         public Task<AgentAuthentication> AuthenticateAsync(
             string username, string password, CancellationToken cancellationToken)
@@ -209,9 +235,14 @@ public sealed class RealSystemdAgentAuthorizationTests
             Task.FromResult(uid switch { 1001 => Admin, 1002 => Alice, _ => null });
 
         public Task<LinuxGroup?> ResolveGroupAsync(string groupName, CancellationToken cancellationToken) =>
-            Task.FromResult(groupName == "sudo" ? new LinuxGroup("sudo", 27) : null);
+            Task.FromResult(groupName switch
+            {
+                "sudo" => new LinuxGroup("sudo", 27),
+                "operators" => Operators,
+                _ => null,
+            });
 
-        private static LinuxAccount? Find(string name) => name switch
+        private LinuxAccount? Find(string name) => name switch
         {
             "admin" => Admin,
             "alice" => Alice,

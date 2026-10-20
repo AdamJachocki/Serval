@@ -232,10 +232,12 @@ src/Serval.Web/
 
 `wwwroot/` contains static web assets. Vendored libraries under `wwwroot/lib/` normally do not need to be inspected during application work.
 
-`AgentIpcClient.cs` sends typed local socket requests. `ServalSessionCookie.cs`
-holds the opaque Agent session in a browser session cookie. `Pages/` contains
-login, logout, filtered service inventory and inspection, and administrator
-grant management. Web has no direct PAM, policy-database or systemd access.
+`AgentIpcClient.cs` sends typed local socket requests. `ServalAuthentication.cs`
+configures the framework ticket contract, per-request Agent validation,
+minimal principal construction and authenticated-ticket access. `Pages/`
+contains login, logout, filtered service inventory and inspection, and
+administrator grant management. Web has no direct PAM, policy-database or
+systemd access.
 
 ---
 
@@ -254,8 +256,9 @@ src/Serval.Agent/AgentConfiguration.cs
 
 `Program.cs` validates root-owned deployment configuration and composes the
 Agent. `AgentSocketServer` checks kernel peer credentials and bounds local
-connections. `AgentDispatcher` validates and authorizes the seven allowed
-operations. `AgentSessions`, `LinuxPam` and `LinuxAccountChecks` own session,
+connections. `AgentDispatcher` validates and authorizes the eight allowed
+operations, including non-refreshing session identity validation.
+`AgentSessions`, `LinuxPam` and `LinuxAccountChecks` own session,
 PAM and current Linux identity checks. `Serval.Systemd` provides read-only
 service inventory and inspection, and its `SystemdProtectedServicePolicy`
 checks protected identities before results are published.

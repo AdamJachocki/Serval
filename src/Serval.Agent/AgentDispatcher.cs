@@ -6,7 +6,7 @@ using Serval.Systemd;
 
 namespace Serval.Agent;
 
-/// <summary>Agent-side identity, policy, protection and audit gate for the seven operations.</summary>
+/// <summary>Agent-side identity, policy, protection and audit gate for the eight operations.</summary>
 public sealed class AgentDispatcher(
     AgentConfiguration configuration,
     IAgentIdentityChecks identities,
@@ -31,6 +31,7 @@ public sealed class AgentDispatcher(
             {
                 AgentRequest.Login login => await LoginAsync(login, Remember, cancellationToken).ConfigureAwait(false),
                 AgentRequest.Logout logout => await LogoutAsync(logout, Remember, cancellationToken).ConfigureAwait(false),
+                AgentRequest.ValidateSession validate => await ValidateSessionAsync(validate, Remember, cancellationToken).ConfigureAwait(false),
                 AgentRequest.ListServices list => await ListServicesAsync(list, Remember, cancellationToken).ConfigureAwait(false),
                 AgentRequest.InspectService inspect => await InspectServiceAsync(inspect, Remember, cancellationToken).ConfigureAwait(false),
                 AgentRequest.ListGrants grants => await ListGrantsAsync(grants, Remember, cancellationToken).ConfigureAwait(false),
@@ -74,6 +75,7 @@ public sealed class AgentDispatcher(
                 {
                     AgentRequest.Login => "Login",
                     AgentRequest.Logout => "Logout",
+                    AgentRequest.ValidateSession => "ValidateSession",
                     AgentRequest.ListServices => "ListServices",
                     AgentRequest.InspectService => "InspectService",
                     AgentRequest.ListGrants => "ListGrants",
@@ -105,7 +107,7 @@ public sealed class AgentDispatcher(
             var code = authentication.Status == AgentResultStatus.Unavailable
                 ? AgentResultCode.Unavailable : AgentResultCode.Denied;
             policy.AppendAudit(Audit(null, "Login", null, code.ToString(), request.CorrelationId));
-            return new AgentResult.Login(code, null);
+            return new AgentResult.Login(code, null, null);
         }
 
         var account = authentication.Account;
@@ -115,7 +117,8 @@ public sealed class AgentDispatcher(
         {
             policy.AppendAudit(Audit(new AgentPrincipal(account.Name, account.Uid),
                 "Login", null, "Success", request.CorrelationId));
-            return new AgentResult.Login(AgentResultCode.Success, token);
+            return new AgentResult.Login(AgentResultCode.Success, token,
+                new AgentIdentity(account.Name, account.Uid));
         }
         catch
         {
@@ -138,6 +141,23 @@ public sealed class AgentDispatcher(
         sessions.Revoke(request.Session);
         policy.AppendAudit(Audit(principal, "Logout", null, "Success", request.CorrelationId));
         return new AgentResult.Logout(AgentResultCode.Success);
+    }
+
+    private async Task<AgentResult> ValidateSessionAsync(AgentRequest.ValidateSession request,
+        Action<AgentPrincipal> remember, CancellationToken cancellationToken)
+    {
+        var context = await AuthenticateAndResolveAsync(request.Session, remember, cancellationToken)
+            .ConfigureAwait(false);
+        if (context is null)
+        {
+            return AuditedFailure(request, null, "ValidateSession", null,
+                AgentResultCode.Unauthenticated);
+        }
+
+        policy.AppendAudit(Audit(context.Value.Principal, "ValidateSession", null,
+            "Success", request.CorrelationId));
+        return new AgentResult.ValidateSession(AgentResultCode.Success,
+            new AgentIdentity(context.Value.Account.Name, context.Value.Account.Uid));
     }
 
     private async Task<AgentResult> ListServicesAsync(
@@ -413,8 +433,9 @@ public sealed class AgentDispatcher(
 
     private static AgentResult Failure(AgentRequest request, AgentResultCode code) => request switch
     {
-        AgentRequest.Login => new AgentResult.Login(code, null),
+        AgentRequest.Login => new AgentResult.Login(code, null, null),
         AgentRequest.Logout => new AgentResult.Logout(code),
+        AgentRequest.ValidateSession => new AgentResult.ValidateSession(code, null),
         AgentRequest.ListServices => new AgentResult.ListServices(code, null),
         AgentRequest.InspectService => new AgentResult.InspectService(code, null),
         AgentRequest.ListGrants => new AgentResult.ListGrants(code, null),

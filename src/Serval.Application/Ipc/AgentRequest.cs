@@ -9,6 +9,9 @@ public abstract record AgentRequest(string CorrelationId)
     public sealed record Logout(string CorrelationId, string Session)
         : AgentRequest(CorrelationId);
 
+    public sealed record ValidateSession(string CorrelationId, string Session)
+        : AgentRequest(CorrelationId);
+
     public sealed record ListServices(string CorrelationId, string Session)
         : AgentRequest(CorrelationId);
 
@@ -42,12 +45,18 @@ public sealed record AgentService(
 public sealed record AgentGrant(
     long Id, string SubjectKind, string Subject, string Operation, string Service);
 
+public sealed record AgentIdentity(string Name, uint Uid);
+
 /// <summary>Only operation-specific, non-secret results are exposed to Web.</summary>
 public abstract record AgentResult(AgentResultCode Code)
 {
-    public sealed record Login(AgentResultCode Code, string? Session) : AgentResult(Code);
+    public sealed record Login(AgentResultCode Code, string? Session, AgentIdentity? Identity)
+        : AgentResult(Code);
 
     public sealed record Logout(AgentResultCode Code) : AgentResult(Code);
+
+    public sealed record ValidateSession(AgentResultCode Code, AgentIdentity? Identity)
+        : AgentResult(Code);
 
     public sealed record ListServices(AgentResultCode Code, IReadOnlyList<AgentService>? Services)
         : AgentResult(Code);

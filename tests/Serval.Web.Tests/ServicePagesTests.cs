@@ -13,9 +13,10 @@ public sealed class ServicePagesTests
     public async Task AnonymousRequestNeverCallsAgentOrSeesServiceMetadata()
     {
         var agent = new FakeClient(_ => throw new InvalidOperationException("Unexpected Agent request"));
-        var page = Attach(new Serval.Web.Pages.Services.IndexModel(agent), new DefaultHttpContext());
+        var page = Attach(new Serval.Web.Pages.Services.IndexModel(agent,
+            new FakeTicketAccessor(null), new FakeInvalidSessionHandler()), new DefaultHttpContext());
 
-        Assert.IsType<RedirectToPageResult>(await page.OnGetAsync(TestContext.Current.CancellationToken));
+        Assert.IsType<ChallengeResult>(await page.OnGetAsync(TestContext.Current.CancellationToken));
         Assert.Empty(agent.Requests);
         Assert.Empty(page.Services);
     }
@@ -25,7 +26,8 @@ public sealed class ServicePagesTests
     {
         var agent = new FakeClient(_ => new AgentResult.ListServices(AgentResultCode.Success,
             [new AgentService("visible.service", "Visible", "loaded", "active", "running")]));
-        var page = Attach(new Serval.Web.Pages.Services.IndexModel(agent), ContextWithCookie());
+        var page = Attach(new Serval.Web.Pages.Services.IndexModel(agent,
+            new FakeTicketAccessor("opaque-token"), new FakeInvalidSessionHandler()), ContextWithCookie());
 
         Assert.IsType<PageResult>(await page.OnGetAsync(TestContext.Current.CancellationToken));
         Assert.Equal("visible.service", Assert.Single(page.Services).Id);
@@ -37,19 +39,19 @@ public sealed class ServicePagesTests
     {
         var agent = new FakeClient(_ => new AgentResult.ListServices(AgentResultCode.Unauthenticated, null));
         var context = ContextWithCookie();
-        var page = Attach(new Serval.Web.Pages.Services.IndexModel(agent), context);
+        var page = Attach(new Serval.Web.Pages.Services.IndexModel(agent,
+            new FakeTicketAccessor("opaque-token"), new FakeInvalidSessionHandler()), context);
 
-        Assert.IsType<RedirectToPageResult>(await page.OnGetAsync(TestContext.Current.CancellationToken));
+        Assert.IsType<ChallengeResult>(await page.OnGetAsync(TestContext.Current.CancellationToken));
         Assert.Empty(page.Services);
-        Assert.Contains("__Host-ServalSession=", context.Response.Headers.SetCookie.ToString(),
-            StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task InspectionHidesDeniedAndProtectedTargets()
     {
         var agent = new FakeClient(_ => new AgentResult.InspectService(AgentResultCode.NotFound, null));
-        var page = Attach(new Serval.Web.Pages.Services.DetailsModel(agent), ContextWithCookie());
+        var page = Attach(new Serval.Web.Pages.Services.DetailsModel(agent,
+            new FakeTicketAccessor("opaque-token"), new FakeInvalidSessionHandler()), ContextWithCookie());
 
         Assert.IsType<NotFoundResult>(await page.OnGetAsync("hidden.service",
             TestContext.Current.CancellationToken));
@@ -65,7 +67,8 @@ public sealed class ServicePagesTests
             AgentRequest.AddGrant => new AgentResult.AddGrant(AgentResultCode.Denied, null),
             _ => throw new InvalidOperationException(),
         });
-        var page = Attach(new Serval.Web.Pages.Grants.IndexModel(agent), ContextWithCookie());
+        var page = Attach(new Serval.Web.Pages.Grants.IndexModel(agent,
+            new FakeTicketAccessor("opaque-token"), new FakeInvalidSessionHandler()), ContextWithCookie());
 
         Assert.Equal(403, Assert.IsType<StatusCodeResult>(await page.OnGetAsync(
             TestContext.Current.CancellationToken)).StatusCode);
@@ -100,5 +103,16 @@ public sealed class ServicePagesTests
             Requests.Add(request);
             return Task.FromResult(respond(request));
         }
+    }
+
+    private sealed class FakeTicketAccessor(string? session) : IAuthenticatedTicketAccessor
+    {
+        public Task<string?> GetSessionAsync(HttpContext context) => Task.FromResult(session);
+    }
+
+    private sealed class FakeInvalidSessionHandler : IInvalidSessionHandler
+    {
+        public Task<IActionResult> ChallengeAsync(HttpContext context) =>
+            Task.FromResult<IActionResult>(new ChallengeResult(ServalAuthentication.Scheme));
     }
 }

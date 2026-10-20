@@ -206,7 +206,7 @@ public sealed class AgentPolicyStore : IAgentPolicyStore
         ArgumentNullException.ThrowIfNull(audit);
         if (audit.ActorName?.Length > 128 ||
             audit.ActorName?.Any(value => value is '/' or '\0' || char.IsControl(value)) == true ||
-            audit.Operation is not ("Login" or "Logout" or "ListServices" or
+            audit.Operation is not ("Login" or "Logout" or "ValidateSession" or "ListServices" or
                 "InspectService" or "ListGrants" or "AddGrant" or "RemoveGrant") ||
             audit.Service?.Length > 255 || audit.Outcome.Length is < 1 or > 32 ||
             audit.Outcome is not ("Success" or "Denied" or "NotFound" or

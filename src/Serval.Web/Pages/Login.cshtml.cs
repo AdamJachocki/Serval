@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Serval.Application.Ipc;
@@ -16,6 +17,9 @@ public sealed class LoginModel(IAgentIpcClient agent) : PageModel
     [StringLength(1024)]
     public string Password { get; set; } = string.Empty;
 
+    [BindProperty(SupportsGet = true)]
+    public string? ReturnUrl { get; set; }
+
     public string? Error { get; private set; }
 
     public void OnGet() { }
@@ -24,20 +28,42 @@ public sealed class LoginModel(IAgentIpcClient agent) : PageModel
     {
         if (!ModelState.IsValid)
         {
+            ClearPassword();
             return Page();
         }
 
         var result = (AgentResult.Login)await agent.SendAsync(
             new AgentRequest.Login(Guid.NewGuid().ToString("N"), Username, Password),
             cancellationToken);
-        Password = string.Empty;
-        if (result.Code == AgentResultCode.Success && !string.IsNullOrEmpty(result.Session))
+        ClearPassword();
+        if (result.Code == AgentResultCode.Success && !string.IsNullOrEmpty(result.Session) &&
+            result.Identity is not null)
         {
-            ServalSessionCookie.Set(Response, result.Session);
+            var properties = new AuthenticationProperties
+            {
+                IsPersistent = false,
+                AllowRefresh = true,
+            };
+            properties.Items[ServalAuthentication.SessionProperty] = result.Session;
+            await HttpContext.SignInAsync(ServalAuthentication.Scheme,
+                ServalAuthentication.CreatePrincipal(result.Identity), properties).ConfigureAwait(false);
+            if (!string.IsNullOrEmpty(ReturnUrl) && Url.IsLocalUrl(ReturnUrl))
+            {
+                return LocalRedirect(ReturnUrl);
+            }
+
             return RedirectToPage("/Services/Index");
         }
 
-        Error = "Sign in failed. Check your credentials or try again later.";
+        Error = result.Code == AgentResultCode.Unavailable
+            ? "Sign in is temporarily unavailable. Try again later."
+            : "Sign in failed. Check your credentials.";
         return Page();
+    }
+
+    private void ClearPassword()
+    {
+        Password = string.Empty;
+        ModelState.Remove(nameof(Password));
     }
 }

@@ -43,8 +43,9 @@ public sealed class AgentIpcClient : IAgentIpcClient
 
     private static AgentResult Failure(AgentRequest request) => request switch
     {
-        AgentRequest.Login => new AgentResult.Login(AgentResultCode.Unavailable, null),
+        AgentRequest.Login => new AgentResult.Login(AgentResultCode.Unavailable, null, null),
         AgentRequest.Logout => new AgentResult.Logout(AgentResultCode.Unavailable),
+        AgentRequest.ValidateSession => new AgentResult.ValidateSession(AgentResultCode.Unavailable, null),
         AgentRequest.ListServices => new AgentResult.ListServices(AgentResultCode.Unavailable, null),
         AgentRequest.InspectService => new AgentResult.InspectService(AgentResultCode.Unavailable, null),
         AgentRequest.ListGrants => new AgentResult.ListGrants(AgentResultCode.Unavailable, null),

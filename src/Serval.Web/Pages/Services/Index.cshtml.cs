@@ -4,7 +4,10 @@ using Serval.Application.Ipc;
 
 namespace Serval.Web.Pages.Services;
 
-public sealed class IndexModel(IAgentIpcClient agent) : PageModel
+public sealed class IndexModel(
+    IAgentIpcClient agent,
+    IAuthenticatedTicketAccessor ticketAccessor,
+    IInvalidSessionHandler invalidSession) : PageModel
 {
     public IReadOnlyList<AgentService> Services { get; private set; } = [];
 
@@ -12,18 +15,17 @@ public sealed class IndexModel(IAgentIpcClient agent) : PageModel
 
     public async Task<IActionResult> OnGetAsync(CancellationToken cancellationToken)
     {
-        var session = ServalSessionCookie.Read(Request);
+        var session = await ticketAccessor.GetSessionAsync(HttpContext).ConfigureAwait(false);
         if (session is null)
         {
-            return RedirectToPage("/Login");
+            return await invalidSession.ChallengeAsync(HttpContext).ConfigureAwait(false);
         }
 
         var result = (AgentResult.ListServices)await agent.SendAsync(
             new AgentRequest.ListServices(Guid.NewGuid().ToString("N"), session), cancellationToken);
         if (result.Code == AgentResultCode.Unauthenticated)
         {
-            ServalSessionCookie.Clear(Response);
-            return RedirectToPage("/Login");
+            return await invalidSession.ChallengeAsync(HttpContext).ConfigureAwait(false);
         }
 
         if (result.Code == AgentResultCode.Success && result.Services is not null)

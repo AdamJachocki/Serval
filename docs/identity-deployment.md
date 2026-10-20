@@ -32,7 +32,7 @@ before `serval-web.service`; the Web unit depends on the Agent.
 | `/run/serval` | root:`serval-web`, `0750` | Agent socket directory managed by systemd |
 | `/run/serval/agent.sock` | Agent-created, accessible to Web | Local typed IPC |
 | `/var/lib/serval/policy.db` | root, `0600` | SQLite grants and audit |
-| `/var/lib/serval-web/keys` | `serval-web` within its `0700` state directory | ASP.NET Core anti-forgery keys |
+| `/var/lib/serval-web/keys` | `serval-web` within its `0700` state directory | ASP.NET Core authentication-ticket and anti-forgery Data Protection keys |
 
 The Agent refuses startup on missing or unsafe configuration, PAM file,
 runtime directory, policy location, Web identity or admin group. The Web account
@@ -44,12 +44,26 @@ restrictions on this host apply to Serval login and subsequent session checks.
 
 ## Sessions, grants and operations
 
-The browser receives a session-only, Secure, HttpOnly, SameSite=Strict cookie.
-It does not contain Linux claims or grant decisions. Agent sessions expire
-after inactivity, are revoked on logout, and disappear when Agent restarts;
-users then log in again. Changing client IP alone does not end a session.
-Account disablement or Linux identity/group changes are checked again by the
-Agent. Changes to grants take effect on the next authorized request.
+The browser receives one session-only, Secure, HttpOnly, SameSite=Strict,
+host-only ASP.NET Core authentication cookie. Data Protection encrypts and
+authenticates the ticket using the Web-owned key ring. The ticket contains the
+opaque Agent credential in protected properties plus minimal Agent-confirmed
+name and UID claims; it contains no password, group list or grant decision.
+Web validates the credential and identity through the Agent on every
+authenticated request. The one-day sliding Web ticket is only a protective
+envelope and does not replace the Agent timeout: validation and ticket renewal
+do not refresh Agent activity. Agent sessions expire after 15 minutes of
+inactivity by default (or the configured 1–120 minute interval), are revoked
+on logout, and disappear when Agent restarts; users then log in again. Changing
+client IP alone does not end a session. Account disablement or Linux
+identity/group changes are checked again by the Agent. Changes to grants take
+effect on the next authorized request.
+
+Web and Agent use protocol version 2 and must be upgraded or rolled back as a
+matching pair. Deploying either side restarts the Agent and invalidates existing
+sessions; the protected cookie deliberately has no legacy raw-cookie fallback,
+so users authenticate again after either upgrade or rollback. No grant database
+migration is required.
 
 Ordinary users can see only concrete services with a matching user or group
 `Service.View` grant. The Agent resolves canonical service identity and checks

@@ -7,7 +7,8 @@ namespace Serval.Agent;
 /// <summary>Local-only Agent transport. Peer identity comes solely from the kernel.</summary>
 public sealed partial class AgentSocketServer(
     AgentConfiguration configuration,
-    Func<AgentRequest, CancellationToken, Task<AgentResult>> dispatch)
+    Func<AgentRequest, CancellationToken, Task<AgentResult>> dispatch,
+    Action<string> revokeSession)
 {
     private const int SolSocket = 1;
     private const int SoPeerCred = 17;
@@ -19,8 +20,8 @@ public sealed partial class AgentSocketServer(
     internal AgentSocketServer(
         AgentConfiguration configuration,
         Func<AgentRequest, CancellationToken, Task<AgentResult>> dispatch,
-        string socketPath, TimeSpan clientDeadline)
-        : this(configuration, dispatch)
+        Action<string> revokeSession, string socketPath, TimeSpan clientDeadline)
+        : this(configuration, dispatch, revokeSession)
     {
         if (!Path.IsPathFullyQualified(socketPath))
         {
@@ -155,9 +156,11 @@ public sealed partial class AgentSocketServer(
             result = FailureFor(request);
         }
 
+        var published = false;
         try
         {
             await AgentProtocol.WriteResultAsync(stream, result, deadline.Token).ConfigureAwait(false);
+            published = true;
         }
         catch (AgentProtocolException)
         {
@@ -166,6 +169,17 @@ public sealed partial class AgentSocketServer(
         catch (Exception exception) when (exception is IOException or OperationCanceledException)
         {
             // The peer may have disconnected. No privileged result has been published.
+        }
+        finally
+        {
+            if (!published && result is AgentResult.Login
+                {
+                    Code: AgentResultCode.Success,
+                    Session: not null,
+                } login)
+            {
+                revokeSession(login.Session);
+            }
         }
     }
 
@@ -205,8 +219,9 @@ public sealed partial class AgentSocketServer(
 
     private static AgentResult FailureFor(AgentRequest request) => request switch
     {
-        AgentRequest.Login => new AgentResult.Login(AgentResultCode.Unavailable, null),
+        AgentRequest.Login => new AgentResult.Login(AgentResultCode.Unavailable, null, null),
         AgentRequest.Logout => new AgentResult.Logout(AgentResultCode.Unavailable),
+        AgentRequest.ValidateSession => new AgentResult.ValidateSession(AgentResultCode.Unavailable, null),
         AgentRequest.ListServices => new AgentResult.ListServices(AgentResultCode.Unavailable, null),
         AgentRequest.InspectService => new AgentResult.InspectService(AgentResultCode.Unavailable, null),
         AgentRequest.ListGrants => new AgentResult.ListGrants(AgentResultCode.Unavailable, null),

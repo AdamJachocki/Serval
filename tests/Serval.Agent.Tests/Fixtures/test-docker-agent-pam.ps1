@@ -60,6 +60,37 @@ function Invoke-Native([string] $Executable, [string[]] $Arguments,
     return $result.Output.Trim()
 }
 
+function Start-PrivateInputProcess([string] $InputText, [string[]] $Arguments) {
+    $start = [Diagnostics.ProcessStartInfo]::new('docker')
+    $start.UseShellExecute = $false
+    $start.WorkingDirectory = (Get-Location).ProviderPath
+    $start.RedirectStandardInput = $true
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    foreach ($argument in $Arguments) { [void] $start.ArgumentList.Add($argument) }
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo = $start
+    [void] $process.Start()
+    $stdout = $process.StandardOutput.ReadToEndAsync()
+    $stderr = $process.StandardError.ReadToEndAsync()
+    $process.StandardInput.Write($InputText + "`n")
+    $process.StandardInput.Close()
+    return @{ Process = $process; Stdout = $stdout; Stderr = $stderr }
+}
+
+function Complete-PrivateInputProcess($Run, [int] $TimeoutSeconds) {
+    try {
+        if (-not $Run.Process.WaitForExit($TimeoutSeconds * 1000)) {
+            $Run.Process.Kill($true)
+            throw 'Private-input Docker step timed out.'
+        }
+        $output = $Run.Stdout.GetAwaiter().GetResult() + $Run.Stderr.GetAwaiter().GetResult()
+        if ($Run.Process.ExitCode -ne 0) { throw 'Private-input Docker step failed.' }
+        return $output.Trim()
+    }
+    finally { $Run.Process.Dispose() }
+}
+
 function Invoke-Container([string[]] $Arguments) {
     return Invoke-Native docker (@('exec', $container) + $Arguments)
 }
@@ -76,6 +107,15 @@ function Assert-Login([string] $User, [string] $Secret, [string] $Peer,
     $result = Send-PrivateInput "$User`n$Secret" @('exec', '-i', '--user', $Peer,
         $container, '/opt/serval/fixture/Serval.Agent.FixtureClient')
     Assert-True ($result -eq $Expected) $Label
+}
+
+function Wait-ContainerFile([string] $Path) {
+    for ($attempt = 0; $attempt -lt 100; $attempt++) {
+        $result = Invoke-Process docker @('exec', $container, 'test', '-e', $Path) 10
+        if ($result.ExitCode -eq 0) { return }
+        Start-Sleep -Milliseconds 100
+    }
+    throw "Agent fixture coordination timed out: $Path"
 }
 
 try {
@@ -171,6 +211,28 @@ try {
     Assert-Login 'serval-expired' $password 'serval-web' 'denied' 'PAM account denial'
     Assert-Login 'serval-allowed' $password 'serval-peer' 'unavailable' 'wrong peer UID'
     Assert-Login 'serval-allowed' $password 'root' 'unavailable' 'root peer UID'
+
+    $accountRun = Start-PrivateInputProcess "serval-allowed`n$password" @(
+        'exec', '-i', '--user', 'serval-web', $container,
+        '/opt/serval/fixture/Serval.Agent.FixtureClient', 'account-invalidation')
+    Wait-ContainerFile '/tmp/serval-fixture-account-invalidation-ready'
+    Invoke-Container @('chage', '-E', '0', 'serval-allowed') | Out-Null
+    Invoke-Container @('touch', '/tmp/serval-fixture-account-invalidation-continue') | Out-Null
+    Assert-True ((Complete-PrivateInputProcess $accountRun 20) -eq 'account-invalidation-success') 'account invalidation'
+    Invoke-Container @('chage', '-E', '-1', 'serval-allowed') | Out-Null
+    Invoke-Container @('rm', '-f', '/tmp/serval-fixture-account-invalidation-ready',
+        '/tmp/serval-fixture-account-invalidation-continue') | Out-Null
+
+    $restartRun = Start-PrivateInputProcess "serval-allowed`n$password" @(
+        'exec', '-i', '--user', 'serval-web', $container,
+        '/opt/serval/fixture/Serval.Agent.FixtureClient', 'restart-invalidation')
+    Wait-ContainerFile '/tmp/serval-fixture-restart-invalidation-ready'
+    Invoke-Container @('systemctl', 'restart', 'serval-agent.service') | Out-Null
+    Wait-ContainerFile '/run/serval/agent.sock'
+    Invoke-Container @('touch', '/tmp/serval-fixture-restart-invalidation-continue') | Out-Null
+    Assert-True ((Complete-PrivateInputProcess $restartRun 20) -eq 'restart-invalidation-success') 'restart invalidation'
+    Invoke-Container @('rm', '-f', '/tmp/serval-fixture-restart-invalidation-ready',
+        '/tmp/serval-fixture-restart-invalidation-continue') | Out-Null
 
     $allowedHash = ((Invoke-Container @('getent', 'shadow', 'serval-allowed')) -split ':')[1]
     $expiredHash = ((Invoke-Container @('getent', 'shadow', 'serval-expired')) -split ':')[1]
