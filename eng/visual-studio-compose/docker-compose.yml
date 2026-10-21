@@ -1,0 +1,14 @@
+services:
+  serval:
+    image: serval-visual-studio-development
+    build:
+      context: ../../artifacts/docker-visual-studio/context
+      dockerfile: Dockerfile
+    labels:
+      com.microsoft.visual-studio.project-name: "Serval.Web"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://0.0.0.0:8080
+    ports:
+      - "127.0.0.1:5123:8080"
+    stop_grace_period: 10s

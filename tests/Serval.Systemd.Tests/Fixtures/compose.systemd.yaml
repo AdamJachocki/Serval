@@ -1,0 +1,20 @@
+services:
+  systemd:
+    image: serval-debian-systemd-smoke
+    build:
+      context: .
+      dockerfile: DebianSystemd.Dockerfile
+    command: ["/sbin/init"]
+    privileged: true
+    cgroup: private
+    tmpfs:
+      - /run:rw,exec,mode=755
+      - /run/lock:rw,mode=755
+    stop_signal: SIGRTMIN+3
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD-SHELL", "grep -qx systemd /proc/1/comm && timeout 5s systemctl show --property=SystemState --value >/dev/null"]
+      interval: 2s
+      timeout: 7s
+      retries: 30
+      start_period: 10s
