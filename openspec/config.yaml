@@ -9,7 +9,7 @@ context: |
     - Serval.Agent is the minimal privileged local component.
     - Communication between Web and Agent is local-only.
     - Privileged operations belong behind the Agent boundary.
-
+    
     Core security invariants:
     - Never move privileged system operations into Serval.Web.
     - Never modify vendor-owned or user-owned systemd unit files directly.
@@ -19,13 +19,13 @@ context: |
     - Authorization must be enforced server-side for every protected operation.
     - Protected-service policy takes precedence over normal permissions.
     - Saving configuration and restarting a service are separate explicit operations.
-
+    
     Canonical repository guidance:
     - AGENTS.md defines agent workflow and mandatory repository instructions.
     - ARCHITECTURE.md defines current architectural boundaries.
     - SECURITY.md defines security policy.
     - Relevant documents under docs/ contain accepted technical decisions.
-
+    
     Treat canonical documentation as authoritative.
     Do not duplicate permanent project documentation in OpenSpec change artifacts.
     Reference it instead and document only what the proposed change adds or modifies.
