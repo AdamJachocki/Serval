@@ -1,0 +1,14 @@
+[Unit]
+Description=Serval demonstration - running
+
+[Service]
+Type=exec
+User=serval-demo
+Group=serval-demo
+ExecStart=/usr/bin/sleep infinity
+Restart=no
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+PrivateNetwork=yes
+ProtectSystem=strict
+ProtectHome=yes

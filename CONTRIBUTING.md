@@ -68,20 +68,38 @@ must support lifecycle hooks.
 
 Before starting, select `Serval.VisualStudioCompose` as the startup project and
 select its `Serval Docker Web` profile. This is a development-only Compose
-runtime: it does not run systemd and does not replace the separate systemd
+runtime: it runs systemd as PID 1 and does not replace the separate systemd
 fixtures. Set a breakpoint in an executed no-login Web path, such as
 `LoginModel.OnGet`, then press F5. One action builds the
 allowlisted context, starts the single `serval` Compose service, starts
-Serval.Agent as root through the fixed lifecycle hook, launches Serval.Web as
-`serval-web`, attaches the managed debugger directly to `dotnet`, and opens
+the protected Serval.Agent systemd unit through the fixed readiness hook, launches Serval.Web as
+`serval-web` through a debugger bootstrap that drops groups and all capabilities, and opens
 `http://localhost:5123/Login`.
 
 The image contains the public disposable Linux account `serval-dev` with
-password `serval`. Use it only to exercise the local F5 browser login flow. It is
+password `serval`. It belongs to the container-local `serval-admin` group and can
+inspect every non-protected container service through the existing Agent policy.
+It cannot inspect the protected Agent, even through aliases. Use it only in this
+disposable local development container. It is
 not a production credential, is not configurable as a production default, and
 must never be copied into deployment scripts, systemd units, production images,
 or operator documentation. The technical `serval-web` account remains locked
 and cannot be used for interactive login.
+
+Every fresh container automatically installs and initializes these real systemd
+services. Their locked `serval-demo` workload account has no capabilities or
+network listeners; the units are development assets excluded from production
+publishing.
+
+| Service | Expected active state | Workload |
+| --- | --- | --- |
+| `serval-demo-running.service` | `active` | Sleeps until stopped |
+| `serval-demo-inactive.service` | `inactive` | Installed, not started |
+| `serval-demo-failed.service` | `failed` | Intentionally exits with status 1 |
+
+After login, open Services and inspect each sample. The failed sample is expected
+and may make the manager report `degraded`; readiness checks the individual states
+and manager responsiveness. Health checks never restart or repair samples.
 
 While F5 is active, identify the Visual Studio container and run the bounded
 in-container verification:
@@ -95,10 +113,11 @@ docker inspect $container --format 'Ports={{json .NetworkSettings.Ports}}'
 docker inspect $container --format '{{range .Mounts}}Type={{.Type}} Source={{.Source}} Destination={{.Destination}} RW={{.RW}}{{println}}{{end}}'
 ```
 
-The verifier requires exactly one root Agent, exactly one Web process owned by
-`serval-web`, the local Agent socket, a responding login page, and its rendered
+The verifier requires a responding systemd manager, all three expected sample
+states, exactly one root Agent, exactly one Web process owned by
+`serval-web` with no retained capabilities, correct local socket permissions, a responding login page, and its rendered
 stylesheets. In the narrowly formatted inspection output, verify that the
-container is not privileged, uses private IPC and cgroup namespaces, has no
+container is privileged only for disposable local development, uses private IPC and cgroup namespaces, has no
 host PID namespace or Docker socket mount, and publishes only container port
 8080 to host loopback port 5123. Do not use an unrestricted `docker inspect` in
 diagnostics because it includes environment-variable values, which must be
@@ -107,25 +126,36 @@ Normal Visual Studio development mounts include the source/build context,
 debugger and Hot Reload tools, NuGet caches, development HTTPS certificates,
 and user-secrets directories. Certificate and user-secret mounts must be
 read-only; their contents must never be copied into the image or diagnostics.
+Privileged mode is an accepted exception for this disposable local profile:
+systemd needs a writable private cgroup hierarchy. It increases access to engine
+devices and mounted development files; read-only mounts still permit reading.
+Never mount the host cgroup tree, systemd bus, Docker socket or account files.
+This exception does not apply to production deployment.
 
 If startup fails, inspect the Visual Studio Build and Container Tools output,
 the generated Compose override under
 `eng/visual-studio-compose/obj/Docker/`, the container health status, and the
-bounded Agent log inside the disposable container:
+bounded Agent unit status inside the disposable container:
 
 ```powershell
 docker inspect $container --format '{{json .State.Health}}'
-docker exec $container sh -c 'tail -n 200 /tmp/serval-agent.log'
+docker exec $container timeout 5s systemctl show serval-agent.service --property=ActiveState,SubState,Result,ExecMainStatus
+docker exec $container timeout 5s systemctl show serval-demo-running.service serval-demo-inactive.service serval-demo-failed.service --property=Id,LoadState,ActiveState,SubState
 ```
 
-The Agent-log command is deliberately limited to its last 200 lines.
+The command prints only unit state and exit status, without environment or log contents.
+The startup hook has a 90-second overall limit. A manager error indicates that
+PID 1 or private writable cgroups are unavailable; check the development Compose
+configuration and Docker Linux-container support. A sample collision or unsafe
+path is rejected rather than overwritten. A wrong sample state is reported by
+name; recreate the disposable container to recover its initial baseline.
 
-An Agent exit, duplicate Agent, pre-existing socket, or IPC timeout fails the
+An Agent exit, unsafe runtime path, or IPC timeout fails the
 root lifecycle hook with a specific message. A missing or duplicate Web process,
 wrong kernel UID, unavailable page, or missing static asset fails
 `verify-development-host.sh`. If the page loads but the selected breakpoint is
 not reached, treat F5 as failed: confirm that the generated override selects
-`dotnet`, `/opt/serval/web/Serval.Web.dll`, and `/opt/serval/web` before retrying.
+`/usr/bin/dotnet`, `/opt/serval/web/Serval.Web.dll` and `/opt/serval/web` before retrying. The read-only debugger entrypoint overlay must select the fixed bootstrap, which starts vsdbg as `serval-web`. The stop command must select `/opt/serval/development/stop-web.sh`.
 Do not attach manually or accept a browser-only success.
 
 Stop debugging with Shift+F5. If Visual Studio leaves the disposable project
@@ -133,6 +163,20 @@ running, remove only that Compose project through Visual Studio's Containers
 window or its generated Compose project; do not reuse this profile as a
 production deployment or systemd test. Production publishing, PAM deployment,
 and systemd units remain unchanged and are verified by their separate workflows.
+
+To reset, use the Containers window to remove only this profile's container after
+Shift+F5, then press F5 again. Removing and recreating the container restores all
+three states and the disposable account. Merely stopping and starting the same
+container does not constitute a fresh baseline.
+
+For automated runtime, authorization and negative-path checks without Visual
+Studio, run `pwsh -NoProfile -File eng/visual-studio-compose/test-development-host.ps1`.
+It creates its own uniquely named container without host mounts or published
+ports and removes it and its image on success or failure. Use
+`-InjectFailureAfterStart` to verify failure cleanup (an intentional nonzero
+result). This separate CI smoke checks real systemd, direct Agent requests and
+rendered HTTP pages; actual F5 breakpoint and Shift+F5 acceptance remains a Visual
+Studio check.
 
 ## Debian 13 systemd Compose smoke test
 

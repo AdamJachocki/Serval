@@ -10,6 +10,18 @@ case "$mode" in
     *) fail "unknown verification mode: $mode" ;;
 esac
 
+timeout 2s systemctl show --property=SystemState --value >/dev/null 2>&1 || fail systemd-manager
+timeout 2s systemctl is-active --quiet serval-agent.service || fail Agent-unit
+for pair in running:active inactive:inactive failed:failed; do
+    name=${pair%:*}
+    expected=${pair#*:}
+    unit="serval-demo-$name.service"
+    loaded=$(timeout 2s systemctl show "$unit" --property=LoadState --value) || fail "$unit: query"
+    [ "$loaded" = loaded ] || fail "$unit: missing"
+    actual=$(timeout 2s systemctl show "$unit" --property=ActiveState --value) || fail "$unit: query"
+    [ "$actual" = "$expected" ] || fail "$unit: expected $expected, got $actual"
+done
+
 agent_count=0
 agent_pid=
 web_count=0
@@ -33,11 +45,17 @@ done
 [ "$agent_count" -eq 1 ] || fail "expected exactly one Serval.Agent process, found $agent_count"
 [ "$(awk '/^Uid:/ {print $2}' "/proc/$agent_pid/status")" -eq 0 ] || fail 'Serval.Agent is not running as UID 0'
 [ -S /run/serval/agent.sock ] || fail 'the Agent socket is missing at /run/serval/agent.sock'
+[ ! -L /run/serval ] && [ ! -L /run/serval/agent.sock ] || fail unsafe-socket-path
+[ "$(stat -c %u:%g:%a /run/serval)" = "0:$(id -g serval-web):750" ] || fail runtime-directory-permissions
+[ "$(stat -c %u:%g:%a /run/serval/agent.sock)" = "0:$(id -g serval-web):660" ] || fail socket-permissions
 
 if [ "$mode" = full ]; then
     [ "$web_count" -eq 1 ] || fail "expected exactly one Serval.Web process, found $web_count"
     [ "$(awk '/^Uid:/ {print $2}' "/proc/$web_pid/status")" -eq "$(id -u serval-web)" ] || \
         fail 'Serval.Web is not running as the serval-web kernel UID'
+    if grep -E '^Cap(Inh|Prm|Eff|Bnd|Amb):' "/proc/$web_pid/status" | grep -qv '0000000000000000$'; then
+        fail 'Serval.Web retained capabilities'
+    fi
 
     login_page=$(mktemp)
     trap 'rm -f "$login_page"' EXIT

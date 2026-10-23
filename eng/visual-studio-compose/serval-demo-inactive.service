@@ -1,0 +1,14 @@
+[Unit]
+Description=Serval demonstration - inactive
+
+[Service]
+Type=oneshot
+User=serval-demo
+Group=serval-demo
+ExecStart=/usr/bin/true
+Restart=no
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+PrivateNetwork=yes
+ProtectSystem=strict
+ProtectHome=yes

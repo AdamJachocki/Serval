@@ -11,4 +11,12 @@ services:
       ASPNETCORE_URLS: http://0.0.0.0:8080
     ports:
       - "127.0.0.1:5123:8080"
-    stop_grace_period: 10s
+    # Accepted only for this disposable local development profile.
+    privileged: true
+    cgroup: private
+    ipc: private
+    tmpfs:
+      - /run:rw,exec,mode=755
+      - /run/lock:rw,mode=755
+    stop_signal: SIGRTMIN+3
+    stop_grace_period: 30s
