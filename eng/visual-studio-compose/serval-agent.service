@@ -1,0 +1,15 @@
+[Unit]
+Description=Serval disposable development Agent
+After=systemd-user-sessions.service
+
+[Service]
+Type=exec
+User=root
+Group=serval-web
+WorkingDirectory=/opt/serval/agent
+ExecStart=/opt/serval/agent/Serval.Agent
+RuntimeDirectory=serval
+RuntimeDirectoryMode=0750
+UMask=0077
+NoNewPrivileges=yes
+Restart=no

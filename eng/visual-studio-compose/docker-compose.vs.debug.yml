@@ -1,17 +1,25 @@
 services:
   serval:
-    user: "serval-web"
+    user: "root"
+    tty: true
+    entrypoint: ["/sbin/init"]
+    volumes:
+      # Keep Microsoft's debugger unchanged; overlay only its launch entrypoint.
+      - "${USERPROFILE}/vsdbg/vs2017u5:/opt/serval/vsdbg:ro"
+      - "./debugger-entrypoint.sh:/remote_debugger/vsdbg:ro"
+      - "./debugger-entrypoint.sh:/remote_debugger/linux-arm64/vsdbg:ro"
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://0.0.0.0:8080
     post_start:
-      - command: /opt/serval/development/start-agent.sh
+      - command: timeout 90s /opt/serval/development/start-agent.sh
         user: root
     labels:
       com.microsoft.visual-studio.project-name: "Serval.Web"
-      com.microsoft.visualstudio.debuggee.program: "dotnet"
+      com.microsoft.visualstudio.debuggee.program: "/usr/bin/dotnet"
       # Visual Studio injects ASPNETCORE_STATICWEBASSETS for the Windows build output.
       # A later command-line value prevents Linux from loading that host-specific manifest;
       # MapStaticAssets then uses the portable publish manifest stored beside this assembly.
       com.microsoft.visualstudio.debuggee.arguments: "\"/opt/serval/web/Serval.Web.dll\" --staticwebassets \"/opt/serval/web/disabled.staticwebassets.runtime.json\" --webroot \"/opt/serval/web/wwwroot\""
+      com.microsoft.visualstudio.debuggee.killprogram: "/opt/serval/development/stop-web.sh"
       com.microsoft.visualstudio.debuggee.workingdirectory: "/opt/serval/web"

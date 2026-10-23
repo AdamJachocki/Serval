@@ -6,4 +6,12 @@
 !web/**
 !serval.pam
 !start-agent.sh
+!start-web.sh
+!start-debugger.sh
+!stop-web.sh
+!initialize-demos.sh
+!serval-demo-running.service
+!serval-demo-inactive.service
+!serval-demo-failed.service
+!serval-agent.service
 !verify-development-host.sh

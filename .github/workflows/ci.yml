@@ -60,6 +60,33 @@ jobs:
           ./tests/Serval.Systemd.Tests/Fixtures/test-compose-systemd-failures.ps1
           ./tests/Serval.Systemd.Tests/Fixtures/test-compose-systemd.ps1
 
+  docker-f5-smoke:
+    name: F5 development services and authorization
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - name: Verify development runtime
+        shell: pwsh
+        run: ./eng/visual-studio-compose/test-development-host.ps1
+      - name: Verify failure cleanup
+        shell: pwsh
+        run: |
+          $injected = $false
+          try { ./eng/visual-studio-compose/test-development-host.ps1 -InjectFailureAfterStart }
+          catch { $injected = $_.Exception.Message -like '*Injected development fixture failure*' }
+          if (-not $injected) { throw 'Injected failure did not behave as expected.' }
+          if (docker ps --all --format '{{.Names}}' | Where-Object { $_ -like 'serval-f5-smoke-*' }) {
+            throw 'Development fixture container remained after failure.'
+          }
+
   docker-agent-pam:
     name: Debian 13 Agent PAM and peer fixture
     runs-on: ubuntu-24.04

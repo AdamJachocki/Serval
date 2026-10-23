@@ -1,6 +1,11 @@
 using System.Net.Sockets;
 using Serval.Application.Ipc;
 
+if (args is ["--development-services"])
+{
+    return await DevelopmentServicesProbe.RunAsync();
+}
+
 // The runner supplies username and password on stdin. Only a fixed result category is printed.
 using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(12));
 try

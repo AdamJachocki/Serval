@@ -82,6 +82,14 @@ try {
         '.dockerignore' = 'eng/visual-studio-compose/context.dockerignore'
         'serval.pam' = 'deploy/pam.d/serval'
         'start-agent.sh' = 'eng/visual-studio-compose/start-agent.sh'
+        'start-web.sh' = 'eng/visual-studio-compose/start-web.sh'
+        'start-debugger.sh' = 'eng/visual-studio-compose/start-debugger.sh'
+        'stop-web.sh' = 'eng/visual-studio-compose/stop-web.sh'
+        'initialize-demos.sh' = 'eng/visual-studio-compose/initialize-demos.sh'
+        'serval-demo-running.service' = 'eng/visual-studio-compose/serval-demo-running.service'
+        'serval-demo-inactive.service' = 'eng/visual-studio-compose/serval-demo-inactive.service'
+        'serval-demo-failed.service' = 'eng/visual-studio-compose/serval-demo-failed.service'
+        'serval-agent.service' = 'eng/visual-studio-compose/serval-agent.service'
         'verify-development-host.sh' = 'eng/visual-studio-compose/verify-development-host.sh'
     }
     foreach ($copy in $copies.GetEnumerator()) {
