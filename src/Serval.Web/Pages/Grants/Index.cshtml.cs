@@ -47,7 +47,7 @@ public sealed class IndexModel(IAgentIpcClient agent) : PageModel
             return RedirectToPage("/Login");
         }
 
-        Error = "Grant could not be added.";
+        Error = "Nie udało się dodać uprawnienia.";
         return await LoadAsync(cancellationToken);
     }
 
@@ -73,7 +73,7 @@ public sealed class IndexModel(IAgentIpcClient agent) : PageModel
             return RedirectToPage("/Login");
         }
 
-        Error = "Grant could not be removed.";
+        Error = "Nie udało się usunąć uprawnienia.";
         return await LoadAsync(cancellationToken);
     }
 
@@ -104,7 +104,7 @@ public sealed class IndexModel(IAgentIpcClient agent) : PageModel
         }
         else
         {
-            Error = "Grants are temporarily unavailable.";
+            Error = "Lista uprawnień jest chwilowo niedostępna.";
         }
 
         return Page();

@@ -1,21 +1,47 @@
 @page
 @model Serval.Web.Pages.Services.DetailsModel
 @{
-    ViewData["Title"] = "Service details";
+    ViewData["Title"] = "Szczegóły usługi";
+    ViewData["Breadcrumb"] = Model.Service is null ? "Usługi / Szczegóły" : $"Usługi / {Model.Service.Id}";
 }
 
-<h1>Service details</h1>
+<a class="back-link" asp-page="/Services/Index" asp-route-q="@Model.Query" asp-route-state="@Model.State">← Wróć do usług</a>
 @if (Model.Error is not null)
 {
-    <div class="alert alert-warning" role="alert">@Model.Error</div>
+    <div class="empty-state empty-state--error" role="alert">
+        <h1>@Model.Error</h1>
+        <div class="button-row">
+            <a class="button button--secondary" asp-page="/Services/Details" asp-route-service="@Request.Query["service"]" asp-route-q="@Model.Query" asp-route-state="@Model.State" data-pending-link>Ponów</a>
+            <a class="button button--text" asp-page="/Services/Index" asp-route-q="@Model.Query" asp-route-state="@Model.State">Wróć do usług</a>
+        </div>
+    </div>
 }
 else if (Model.Service is not null)
 {
-    <dl class="row">
-        <dt class="col-sm-3">Canonical name</dt><dd class="col-sm-9">@Model.Service.Id</dd>
-        <dt class="col-sm-3">Description</dt><dd class="col-sm-9">@Model.Service.Description</dd>
-        <dt class="col-sm-3">Load</dt><dd class="col-sm-9">@Model.Service.LoadState</dd>
-        <dt class="col-sm-3">Active</dt><dd class="col-sm-9">@Model.Service.ActiveState</dd>
-        <dt class="col-sm-3">Sub-state</dt><dd class="col-sm-9">@Model.Service.SubState</dd>
-    </dl>
+    <header class="detail-header">
+        <div>
+        <div class="detail-title-row"><h1 class="service-identifier">@Model.Service.Id</h1><partial name="_StatusBadge" model="Model.Service.ActiveState" /></div>
+            <p class="page-lead">@(string.IsNullOrEmpty(Model.Service.Description) ? "Brak opisu" : Model.Service.Description)</p>
+        </div>
+        <a class="button button--secondary" asp-page="/Services/Details" asp-route-service="@Model.Service.Id" asp-route-q="@Model.Query" asp-route-state="@Model.State" data-pending-link>
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M6.1 8A7 7 0 0118 6l2 6M17.9 16A7 7 0 016 18l-2-6" /></svg>
+            Odśwież
+        </a>
+    </header>
+    <p class="pending-announcement" role="status" aria-live="polite" data-pending-announcement></p>
+    <section class="detail-panel" aria-labelledby="service-state-heading">
+        <h2 id="service-state-heading">Stan usługi</h2>
+        <dl class="key-value-list">
+            <div><dt>Stan</dt><dd><partial name="_StatusBadge" model="Model.Service.ActiveState" /> <code>@(string.IsNullOrEmpty(Model.Service.ActiveState) ? "—" : Model.Service.ActiveState)</code></dd></div>
+            <div><dt>Podstan</dt><dd><code>@(string.IsNullOrEmpty(Model.Service.SubState) ? "—" : Model.Service.SubState)</code></dd></div>
+            <div><dt>Załadowanie</dt><dd><code>@(string.IsNullOrEmpty(Model.Service.LoadState) ? "—" : Model.Service.LoadState)</code></dd></div>
+        </dl>
+    </section>
+    <section class="detail-panel" aria-labelledby="service-identity-heading">
+        <h2 id="service-identity-heading">Identyfikacja</h2>
+        <dl class="key-value-list">
+            <div><dt>Nazwa kanoniczna</dt><dd><code class="wrappable">@Model.Service.Id</code></dd></div>
+            <div><dt>Opis</dt><dd>@(string.IsNullOrEmpty(Model.Service.Description) ? "Brak opisu" : Model.Service.Description)</dd></div>
+        </dl>
+    </section>
 }

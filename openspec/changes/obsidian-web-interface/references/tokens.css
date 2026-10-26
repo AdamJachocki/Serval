@@ -1,0 +1,45 @@
+/* Serval Obsidian — proposed design tokens, not installed in the application.
+   Fonts are optional local assets, not bundled. Exact values override raster mockups. */
+:root {
+  color-scheme: dark;
+  --obs-canvas: #111820;
+  --obs-sidebar: #141e28;
+  --obs-surface: #1b2632;
+  --obs-surface-hover: #223241;
+  --obs-border: #344657;
+  --obs-control-border: #65788c;
+  --obs-text: #f3f6fa;
+  --obs-text-secondary: #b6c2d1;
+  --obs-accent: #79e2c0;
+  --obs-accent-ink: #10251e;
+  --obs-danger: #ff9b9b;
+  --obs-warning: #f2ce86;
+  --obs-neutral: #bcc8d6;
+  --obs-font-heading: "Space Grotesk", system-ui, sans-serif;
+  --obs-font-body: system-ui, sans-serif;
+  --obs-font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --obs-text-body: 1rem;
+  --obs-text-data: .875rem;
+  --obs-text-title: 2rem;
+  --obs-space-1: .25rem;
+  --obs-space-2: .5rem;
+  --obs-space-3: .75rem;
+  --obs-space-4: 1rem;
+  --obs-space-6: 1.5rem;
+  --obs-space-8: 2rem;
+  --obs-space-12: 3rem;
+  --obs-space-16: 4rem;
+  --obs-radius-control: .5rem;
+  --obs-radius-panel: .75rem;
+  --obs-sidebar-width: 14.5rem;
+  --obs-control-height: 2.75rem;
+  --obs-login-control-height: 3rem;
+  --obs-row-min-height: 4rem;
+  --obs-focus-ring: 2px solid var(--obs-accent);
+  --obs-focus-offset: 3px;
+  --obs-transition: 140ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root { --obs-transition: 0ms; }
+}
+

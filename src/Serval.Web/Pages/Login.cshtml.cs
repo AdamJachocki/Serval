@@ -8,13 +8,16 @@ namespace Serval.Web.Pages;
 public sealed class LoginModel(IAgentIpcClient agent) : PageModel
 {
     [BindProperty]
-    [Required]
-    [StringLength(128)]
+    [Display(Name = "Nazwa użytkownika")]
+    [Required(ErrorMessage = "Podaj nazwę użytkownika.")]
+    [StringLength(128, ErrorMessage = "Nazwa użytkownika może mieć najwyżej 128 znaków.")]
     public string Username { get; set; } = string.Empty;
 
     [BindProperty]
-    [StringLength(1024)]
-    public string Password { get; set; } = string.Empty;
+    [Display(Name = "Hasło")]
+    [DisplayFormat(ConvertEmptyStringToNull = false)]
+    [StringLength(1024, ErrorMessage = "Hasło może mieć najwyżej 1024 znaki.")]
+    public string? Password { get; set; }
 
     public string? Error { get; private set; }
 
@@ -24,20 +27,37 @@ public sealed class LoginModel(IAgentIpcClient agent) : PageModel
     {
         if (!ModelState.IsValid)
         {
+            ClearPasswordFromReturnedForm();
             return Page();
         }
 
         var result = (AgentResult.Login)await agent.SendAsync(
-            new AgentRequest.Login(Guid.NewGuid().ToString("N"), Username, Password),
+            new AgentRequest.Login(Guid.NewGuid().ToString("N"), Username, Password ?? string.Empty),
             cancellationToken);
-        Password = string.Empty;
+        ClearPasswordFromReturnedForm();
         if (result.Code == AgentResultCode.Success && !string.IsNullOrEmpty(result.Session))
         {
             ServalSessionCookie.Set(Response, result.Session);
             return RedirectToPage("/Services/Index");
         }
 
-        Error = "Sign in failed. Check your credentials or try again later.";
+        Error = "Nie udało się zalogować. Sprawdź dane i spróbuj ponownie.";
         return Page();
+    }
+
+    private void ClearPasswordFromReturnedForm()
+    {
+        Password = string.Empty;
+        if (!ModelState.TryGetValue(nameof(Password), out var entry))
+        {
+            return;
+        }
+
+        var errors = entry.Errors.Select(error => error.ErrorMessage).ToArray();
+        ModelState.Remove(nameof(Password));
+        foreach (var error in errors)
+        {
+            ModelState.AddModelError(nameof(Password), error);
+        }
     }
 }

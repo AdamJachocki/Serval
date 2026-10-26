@@ -232,6 +232,8 @@ src/Serval.Web/
 
 `wwwroot/` contains static web assets. Vendored libraries under `wwwroot/lib/` normally do not need to be inspected during application work.
 
+The implemented Web tokens, assets, component conventions, responsive behavior and service-status presentation are documented in [`frontend-design.md`](frontend-design.md).
+
 `AgentIpcClient.cs` sends typed local socket requests. `ServalSessionCookie.cs`
 holds the opaque Agent session in a browser session cookie. `Pages/` contains
 login, logout, filtered service inventory and inspection, and administrator

@@ -1,11 +1,11 @@
 ﻿@page
 @model IndexModel
 @{
-    ViewData["Title"] = "Home";
+    ViewData["Title"] = "Strona główna";
 }
 
-<div class="text-center">
-    <h1 class="display-4">Serval</h1>
-    <p>Sign in with your Linux account to view the system services you can access.</p>
-    <a class="btn btn-primary" asp-page="/Login">Sign in</a>
-</div>
+<section class="simple-panel">
+    <h1>Administracja usługami systemowymi</h1>
+    <p class="page-lead">Zaloguj się kontem systemowym Linux, aby zobaczyć usługi, do których masz dostęp.</p>
+    <a class="button button--primary" asp-page="/Login">Zaloguj się</a>
+</section>
