@@ -34,23 +34,26 @@
     }
     function addRow(variable, sources, canReveal) {
         const row = document.createElement("div");
-        row.className = "border rounded p-3 mb-2";
+        row.className = "environment-row";
         const name = document.createElement("strong");
         name.textContent = variable.name;
         name.style.overflowWrap = "anywhere";
         const source = document.createElement("p");
+        source.className = "environment-row__source";
         source.textContent = sourceLabel(sources.find(item => item.id === variable.winningSourceId));
         const value = document.createElement("pre");
+        value.className = "environment-row__value";
         value.style.whiteSpace = "pre-wrap";
         value.style.overflowWrap = "anywhere";
         value.textContent = mask;
         const message = document.createElement("p");
+        message.className = "environment-row__message";
         message.setAttribute("role", "status");
         row.append(name, source, value, message);
         if (canReveal && variable.name.length <= 4096) {
             const button = document.createElement("button");
             button.type = "button";
-            button.className = "btn btn-outline-secondary btn-sm";
+            button.className = "button button--secondary button--compact";
             button.textContent = "Pokaż";
             let sequence = 0;
             let request;

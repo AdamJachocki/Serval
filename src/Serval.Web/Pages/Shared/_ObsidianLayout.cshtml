@@ -1,0 +1,75 @@
+@{
+    var page = ViewContext.RouteData.Values["page"]?.ToString() ?? string.Empty;
+    var isLogin = string.Equals(page, "/Login", StringComparison.Ordinal);
+    var isServices = page.StartsWith("/Services", StringComparison.Ordinal);
+    var isGrants = page.StartsWith("/Grants", StringComparison.Ordinal);
+    var useApplicationShell = isServices || isGrants;
+    var breadcrumb = ViewData["Breadcrumb"]?.ToString()
+        ?? (isServices ? "Usługi" : isGrants ? "Uprawnienia" : ViewData["Title"]?.ToString());
+}
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>@ViewData["Title"] — Serval</title>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body class="@(useApplicationShell ? "authenticated-page" : isLogin ? "login-page" : "simple-page")">
+    <a class="skip-link" href="#main-content">Przejdź do treści</a>
+    @if (useApplicationShell)
+    {
+        <div class="app-shell">
+            <aside class="sidebar" aria-label="Nawigacja główna">
+                <a class="brand-link" asp-page="/Services/Index"><partial name="_Brand" /></a>
+                <nav class="primary-nav" aria-label="Główna">
+                    <a class="nav-link @(isServices ? "is-current" : null)" asp-page="/Services/Index" aria-current="@(isServices ? "page" : null)">
+                        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 5h16v4H4zM4 15h16v4H4zM7 7h.01M7 17h.01" /></svg>
+                        <span>Usługi</span>
+                    </a>
+                    <a class="nav-link @(isGrants ? "is-current" : null)" asp-page="/Grants/Index" aria-current="@(isGrants ? "page" : null)">
+                        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.8-2.8 8.2-7 10-4.2-1.8-7-5.2-7-10V6l7-3z" /></svg>
+                        <span>Uprawnienia</span>
+                    </a>
+                </nav>
+                <form class="logout-form" method="post" asp-page="/Logout">
+                    <button class="nav-link nav-link--logout" type="submit">
+                        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10 5H5v14h5M14 8l4 4-4 4M8 12h10" /></svg>
+                        <span>Wyloguj się</span>
+                    </button>
+                </form>
+            </aside>
+            <div class="app-frame">
+                <header class="mobile-header">
+                    <a class="brand-link" asp-page="/Services/Index"><partial name="_Brand" /></a>
+                    <details class="mobile-navigation">
+                        <summary>Menu</summary>
+                        <nav aria-label="Główna na małym ekranie">
+                            <a class="nav-link @(isServices ? "is-current" : null)" asp-page="/Services/Index" aria-current="@(isServices ? "page" : null)">Usługi</a>
+                            <a class="nav-link @(isGrants ? "is-current" : null)" asp-page="/Grants/Index" aria-current="@(isGrants ? "page" : null)">Uprawnienia</a>
+                            <form method="post" asp-page="/Logout"><button class="nav-link" type="submit">Wyloguj się</button></form>
+                        </nav>
+                    </details>
+                </header>
+                <div class="breadcrumb-strip" aria-label="Ścieżka nawigacji">@breadcrumb</div>
+                <main id="main-content" class="app-content" tabindex="-1">
+                    @RenderBody()
+                </main>
+            </div>
+        </div>
+    }
+    else if (isLogin)
+    {
+        <main id="main-content" tabindex="-1">@RenderBody()</main>
+    }
+    else
+    {
+        <header class="simple-header"><a class="brand-link" asp-page="/Index"><partial name="_Brand" /></a></header>
+        <main id="main-content" class="simple-content" tabindex="-1">@RenderBody()</main>
+    }
+
+    <script src="~/js/site.js" asp-append-version="true"></script>
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

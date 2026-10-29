@@ -27,10 +27,10 @@ let stage = 'launch';
         try {
             await page.getByRole('button', { name: 'Pokaż', exact: true }).first().waitFor({ timeout: 10000 });
         } catch {
-            console.error('state=section-' + await page.locator('#service-environment').count() + '-http-' + metadataStatus + '-errors-' + errors.length);
+            console.error('state=closed-' + page.isClosed() + '-http-' + metadataStatus + '-errors-' + errors.length);
             throw new Error('metadata');
         }
-        assert((await page.title()).includes('Service details'), 'page-identity');
+        assert((await page.title()).includes('Szczegóły usługi'), 'page-identity');
         const values = page.locator('#environment-rows pre');
         const masked = async () => values.evaluateAll(elements => elements.length === 2 && elements.every(e => e.textContent === '••••••••'));
         assert(await masked() && reveals === 0, 'initial-masks');
@@ -102,7 +102,7 @@ let stage = 'launch';
         metadataCode = 404;
         await page.getByRole('button', { name: 'Spróbuj ponownie', exact: true }).click();
         await page.getByText('Brak dostępu do środowiska usługi.', { exact: true }).waitFor();
-        assert(await page.getByRole('heading', { name: 'Service details', exact: true }).isVisible(), 'independent-details');
+        assert(await page.getByRole('heading', { name: 'worker.service', exact: true }).isVisible(), 'independent-details');
         console.log('Environment browser checks passed.');
     } finally { await browser.close(); }
 })().catch(error => { console.error('stage=' + stage); console.error('network=' + ((error.message || '').match(/net::[A-Z_]+/) || ['unknown'])[0]); process.exitCode = 1; });

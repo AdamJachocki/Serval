@@ -1,44 +1,54 @@
 @page
 @model Serval.Web.Pages.Grants.IndexModel
 @{
-    ViewData["Title"] = "Grants";
+    ViewData["Title"] = "Uprawnienia";
+    ViewData["Breadcrumb"] = "Uprawnienia";
 }
 
-<h1>Service grants</h1>
+<header class="page-header">
+    <div>
+        <h1>Uprawnienia do usług</h1>
+        <p class="page-lead">Zarządzaj dostępem kont i grup systemu Linux do odczytu usług.</p>
+    </div>
+</header>
 @if (Model.Error is not null)
 {
-    <div class="alert alert-warning" role="alert">@Model.Error</div>
+    <div class="alert alert--warning" role="alert">@Model.Error</div>
 }
-<form method="post" asp-page-handler="Add" class="mb-4">
-    <div class="mb-3">
-        <label asp-for="SubjectKind" class="form-label">Subject type</label>
-        <select asp-for="SubjectKind" class="form-select">
-            <option value="User">User</option>
-            <option value="Group">Group</option>
+<section class="detail-panel grants-form" aria-labelledby="add-grant-heading">
+<h2 id="add-grant-heading">Dodaj uprawnienie</h2>
+<form method="post" asp-page-handler="Add">
+    <div class="form-field">
+        <label asp-for="SubjectKind">Typ podmiotu</label>
+        <select asp-for="SubjectKind">
+            <option value="User">Użytkownik</option>
+            <option value="Group">Grupa</option>
         </select>
     </div>
-    <div class="mb-3">
-        <label asp-for="Subject" class="form-label">Linux account or group</label>
-        <input asp-for="Subject" class="form-control" />
+    <div class="form-field">
+        <label asp-for="Subject">Konto lub grupa systemu Linux</label>
+        <input asp-for="Subject" />
     </div>
-    <div class="mb-3">
-        <label asp-for="Service" class="form-label">Canonical service name</label>
-        <input asp-for="Service" class="form-control" placeholder="example.service" />
+    <div class="form-field">
+        <label asp-for="Service">Nazwa kanoniczna usługi</label>
+        <input asp-for="Service" placeholder="example.service" />
     </div>
-    <div class="mb-3">
-        <label asp-for="Operation" class="form-label">Uprawnienie</label>
-        <select asp-for="Operation" class="form-select" aria-describedby="grant-dependencies">
+    <div class="form-field">
+        <label asp-for="Operation">Uprawnienie</label>
+        <select asp-for="Operation" aria-describedby="grant-dependencies">
             <option>Service.View</option>
             <option>Environment.View</option>
             <option>Environment.Reveal</option>
         </select>
-        <p id="grant-dependencies">Otwarcie strony usługi wymaga Service.View. Pokaż wymaga Environment.View i Environment.Reveal. Zależne uprawnienia należy nadać osobno.</p>
     </div>
-    <button type="submit" class="btn btn-primary">Nadaj uprawnienie</button>
+    <button type="submit" class="button button--primary">Nadaj uprawnienie</button>
+    <p id="grant-dependencies" class="form-help">Otwarcie strony usługi wymaga Service.View. Pokaż wymaga Environment.View i Environment.Reveal. Zależne uprawnienia należy nadać osobno.</p>
 </form>
+</section>
 
-<table class="table">
-    <thead><tr><th>Subject</th><th>Operation</th><th>Service</th><th></th></tr></thead>
+<div class="table-region grants-table" role="region" aria-label="Lista uprawnień" tabindex="0">
+<table class="service-table">
+    <thead><tr><th scope="col">Podmiot</th><th scope="col">Operacja</th><th scope="col">Usługa</th><th scope="col"><span class="visually-hidden">Akcje</span></th></tr></thead>
     <tbody>
     @foreach (var grant in Model.Grants)
     {
@@ -49,10 +59,11 @@
             <td>
                 <form method="post" asp-page-handler="Remove">
                     <input type="hidden" name="GrantId" value="@grant.Id" />
-                    <button type="submit" class="btn btn-outline-danger btn-sm">Remove</button>
+                    <button type="submit" class="button button--danger button--compact">Usuń</button>
                 </form>
             </td>
         </tr>
     }
     </tbody>
 </table>
+</div>

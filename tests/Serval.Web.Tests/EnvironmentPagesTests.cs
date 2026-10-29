@@ -60,9 +60,9 @@ public sealed partial class EnvironmentPagesTests
             _ = await stdout;
             var diagnostic = await stderr;
             var stage = Regex.Match(diagnostic, "stage=([a-z-]+)").Groups[1].Value;
-            var state = Regex.Match(diagnostic, "state=([a-z0-9-]+)").Groups[1].Value;
+            var state = Regex.Match(diagnostic, "state=([^\r\n]+)").Groups[1].Value;
             var network = Regex.Match(diagnostic, "network=(net::[A-Z_]+|unknown)").Groups[1].Value;
-            Assert.True(process.ExitCode == 0, "Browser environment flow failed at stage: " + stage + " " + state + " " + network);
+            Assert.True(process.ExitCode == 0, "Browser environment flow failed at stage: " + stage + " " + state + " " + network + " " + diagnostic.Trim());
         }
         finally
         {

@@ -1,29 +1,86 @@
 @page
 @model Serval.Web.Pages.Services.IndexModel
 @{
-    ViewData["Title"] = "Services";
+    ViewData["Title"] = "Usługi";
+    ViewData["Breadcrumb"] = "Usługi";
+    var selectedStateLabel = ServiceStatusPresentation.From(Model.State).Label;
 }
 
-<h1>Services</h1>
+<header class="page-header">
+    <div>
+        <h1>Usługi</h1>
+        <p class="page-lead">Usługi dostępne dla Twojego konta.</p>
+    </div>
+</header>
 @if (Model.Error is not null)
 {
-    <div class="alert alert-warning" role="alert">@Model.Error</div>
+    <div class="empty-state empty-state--error" role="alert">
+        <h2>@Model.Error</h2>
+        <a class="button button--secondary" asp-page="/Services/Index" asp-route-q="@Model.Query" asp-route-state="@Model.State" data-pending-link>Ponów</a>
+    </div>
 }
 else
 {
-    <table class="table">
-        <thead><tr><th>Service</th><th>Description</th><th>Load</th><th>Active</th><th>Sub-state</th></tr></thead>
-        <tbody>
-        @foreach (var service in Model.Services)
-        {
-            <tr>
-                <td><a asp-page="/Services/Details" asp-route-service="@service.Id">@service.Id</a></td>
-                <td>@service.Description</td>
-                <td>@service.LoadState</td>
-                <td>@service.ActiveState</td>
-                <td>@service.SubState</td>
-            </tr>
-        }
-        </tbody>
-    </table>
+    <form class="service-toolbar" method="get" data-service-filters>
+        <div class="search-field">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M11 4a7 7 0 105.2 11.7L21 20.5M16 16l.2-.3" /></svg>
+            <label class="visually-hidden" for="service-query">Szukaj po nazwie lub opisie</label>
+            <input id="service-query" type="search" name="q" value="@Model.Query" maxlength="256" placeholder="Szukaj po nazwie lub opisie" data-filter-query />
+        </div>
+        <div class="select-field">
+            <label class="visually-hidden" for="service-state">Stan usługi</label>
+            <select id="service-state" name="state" data-filter-state>
+                <option value="">Wszystkie stany</option>
+                @foreach (var state in Model.AvailableStates)
+                {
+                    <option value="@state" selected="@(string.Equals(Model.State, state, StringComparison.Ordinal) ? "selected" : null)">@ServiceStatusPresentation.From(state).Label</option>
+                }
+                @if (!string.IsNullOrEmpty(Model.State) && !Model.AvailableStates.Contains(Model.State, StringComparer.Ordinal))
+                {
+                    <option value="@Model.State" selected>@selectedStateLabel</option>
+                }
+            </select>
+        </div>
+        <button class="button button--secondary filter-submit" type="submit">Filtruj</button>
+        <button class="button button--text" type="button" hidden data-clear-filters>Wyczyść filtry</button>
+        <a class="button button--secondary" asp-page="/Services/Index" asp-route-q="@Model.Query" asp-route-state="@Model.State" data-filter-refresh data-pending-link>
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M6.1 8A7 7 0 0118 6l2 6M17.9 16A7 7 0 016 18l-2-6" /></svg>
+            Odśwież
+        </a>
+    </form>
+
+    <p class="pending-announcement" role="status" aria-live="polite" data-pending-announcement></p>
+    @if (Model.Services.Count == 0)
+    {
+        <div class="empty-state" role="status"><h2>Brak usług do wyświetlenia.</h2></div>
+    }
+    else
+    {
+        <div class="table-region" role="region" aria-label="Lista usług" tabindex="0">
+            <p class="table-scroll-hint">Przewiń tabelę, aby zobaczyć pozostałe kolumny.</p>
+            <table class="service-table">
+                <thead><tr><th scope="col">Usługa</th><th scope="col">Opis</th><th scope="col">Stan</th><th scope="col">Podstan</th><th scope="col">Załadowanie</th></tr></thead>
+                <tbody data-service-rows>
+                @foreach (var service in Model.Services)
+                {
+                    var isVisible = Model.FilteredServices.Contains(service);
+                    <tr hidden="@(!isVisible)" data-service-row data-id="@service.Id" data-description="@service.Description" data-state="@service.ActiveState">
+                        <td><a class="service-link" asp-page="/Services/Details" asp-route-service="@service.Id" asp-route-q="@Model.Query" asp-route-state="@Model.State" data-service-link>@service.Id</a></td>
+                        <td>@(string.IsNullOrEmpty(service.Description) ? "Brak opisu" : service.Description)</td>
+                        <td><partial name="_StatusBadge" model="service.ActiveState" /></td>
+                        <td><code>@service.SubState</code></td>
+                        <td><code>@service.LoadState</code></td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+            <footer class="table-footer">
+                <p role="status" aria-live="polite" data-result-count>Wyświetlono @Model.FilteredServices.Count z @Model.Services.Count usług</p>
+            </footer>
+        </div>
+        <div class="empty-state" role="status" hidden="@(Model.FilteredServices.Count != 0)" data-no-results>
+            <h2>Brak wyników.</h2>
+            <noscript><a class="button button--text" asp-page="/Services/Index">Wyczyść filtry</a></noscript>
+        </div>
+    }
 }

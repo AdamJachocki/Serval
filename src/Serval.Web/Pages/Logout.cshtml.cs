@@ -27,7 +27,7 @@ public sealed class LogoutModel(IAgentIpcClient agent) : PageModel
             return RedirectToPage("/Login");
         }
 
-        Error = "Sign out could not be confirmed. Try again.";
+        Error = "Nie udało się potwierdzić wylogowania. Spróbuj ponownie.";
         return Page();
     }
 }

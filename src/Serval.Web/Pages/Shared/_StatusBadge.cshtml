@@ -1,0 +1,9 @@
+@model string
+@using Serval.Web.Presentation
+@{
+    var status = ServiceStatusPresentation.From(Model);
+}
+<span class="status-badge status-badge--@status.Modifier">
+    <span class="status-badge__symbol" aria-hidden="true">@status.Symbol</span>
+    <span>@status.Label</span>
+</span>
