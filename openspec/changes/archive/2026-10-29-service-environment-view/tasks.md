@@ -27,5 +27,13 @@
 
 - [x] 4.1 Run the complete browser-to-Agent flow with real systemd and generated private fixture values; verify authorization bypass attempts, value-free metadata/audit, exact single-value disclosure and no configuration/lifecycle changes, without retaining screenshots or traces containing values.
 - [x] 4.2 Run repository formatting, locked restore, warnings-as-errors build and applicable managed tests; record each gate as passed, failed or unverified with its reason, and verify no unrelated source changes entered the task diff.
-- [ ] 4.3 Run the existing supported real-systemd CI matrix (249/255/257/259, x64/ARM64) with the new environment-operation coverage and cleanup checks; record per-cell results separately from Windows and local Linux evidence.
-- [ ] 4.4 Validate the OpenSpec change and complete .agents/workflows/post-change-review.md with a fresh independent reviewer; verify the latest verdict is APPROVED and all applicable mandatory gates have passed before declaring implementation complete.
+- [x] 4.3 Run the existing supported real-systemd CI matrix (249/255/257/259, x64/ARM64) with the new environment-operation coverage and cleanup checks; record per-cell results separately from Windows and local Linux evidence.
+  - User-confirmed CI result: systemd 249 / x64 — passed.
+  - User-confirmed CI result: systemd 249 / ARM64 — passed.
+  - User-confirmed CI result: systemd 255 / x64 — passed.
+  - User-confirmed CI result: systemd 255 / ARM64 — passed.
+  - User-confirmed CI result: systemd 257 / x64 — passed.
+  - User-confirmed CI result: systemd 257 / ARM64 — passed.
+  - User-confirmed CI result: systemd 259 / x64 — passed.
+  - User-confirmed CI result: systemd 259 / ARM64 — passed.
+- [x] 4.4 Validate the OpenSpec change and complete .agents/workflows/post-change-review.md with a fresh independent reviewer; verify the latest verdict is APPROVED and all applicable mandatory gates have passed before declaring implementation complete.
