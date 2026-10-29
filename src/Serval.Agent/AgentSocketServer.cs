@@ -167,6 +167,10 @@ public sealed partial class AgentSocketServer(
         {
             // The peer may have disconnected. No privileged result has been published.
         }
+        finally
+        {
+            (result as IDisposable)?.Dispose();
+        }
     }
 
     private static async Task TryWriteUnavailableAsync(Stream stream, CancellationToken cancellationToken)
@@ -212,6 +216,8 @@ public sealed partial class AgentSocketServer(
         AgentRequest.ListGrants => new AgentResult.ListGrants(AgentResultCode.Unavailable, null),
         AgentRequest.AddGrant => new AgentResult.AddGrant(AgentResultCode.Unavailable, null),
         AgentRequest.RemoveGrant => new AgentResult.RemoveGrant(AgentResultCode.Unavailable),
+        AgentRequest.ListEnvironment => new AgentResult.ListEnvironment(AgentResultCode.Unavailable, null),
+        AgentRequest.RevealEnvironmentVariable => new AgentResult.RevealEnvironmentVariable(AgentResultCode.Unavailable, null),
         _ => throw new AgentProtocolException(),
     };
 

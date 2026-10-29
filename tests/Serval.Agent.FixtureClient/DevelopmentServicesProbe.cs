@@ -94,7 +94,7 @@ internal static partial class DevelopmentServicesProbe
             if (allowed)
             {
                 var body = await detail.Content.ReadAsStringAsync(token);
-                Require(body.Contains(name, StringComparison.Ordinal) && body.Contains(">" + state + "</dd>", StringComparison.Ordinal));
+                Require(body.Contains(name, StringComparison.Ordinal) && body.Contains("<code>" + state + "</code>", StringComparison.Ordinal));
             }
         }
         foreach (var name in forbidden)

@@ -9,6 +9,67 @@ namespace Serval.Web.Tests;
 
 public sealed class ServicePagesTests
 {
+    [Theory]
+    [InlineData(AgentResultCode.Denied, 404)]
+    [InlineData(AgentResultCode.NotFound, 404)]
+    [InlineData(AgentResultCode.InvalidRequest, 404)]
+    [InlineData(AgentResultCode.Unauthenticated, 401)]
+    public async Task RevealFailuresAreIndistinguishableAndSessionExpiryClearsCookie(AgentResultCode code, int status)
+    {
+        var agent = new FakeClient(_ => new AgentResult.RevealEnvironmentVariable(code, null));
+        var context = ContextWithCookie();
+        var page = Attach(new Serval.Web.Pages.Services.DetailsModel(agent), context);
+        Assert.Equal(status, Assert.IsAssignableFrom<StatusCodeResult>(await page.OnPostRevealAsync(
+            "worker.service", "CONFIG", TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal("no-store", context.Response.Headers.CacheControl);
+        if (code == AgentResultCode.Unauthenticated)
+            Assert.Contains("__Host-ServalSession=", context.Response.Headers.SetCookie.ToString(), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("UnsupportedConfiguration", "Ta konfiguracja nie jest obsługiwana.")]
+    [InlineData("InconsistentSnapshot", "Konfiguracja zmieniła się podczas odczytu. Spróbuj ponownie.")]
+    [InlineData("arbitrary-private-error", "Środowisko jest chwilowo niedostępne.")]
+    public async Task EnvironmentErrorsUseOnlyFixedMessages(string failure, string expected)
+    {
+        var agent = new FakeClient(_ => new AgentResult.ListEnvironment(AgentResultCode.Unavailable, null, failure));
+        var page = Attach(new Serval.Web.Pages.Services.DetailsModel(agent), ContextWithCookie());
+        var result = Assert.IsType<JsonResult>(await page.OnGetEnvironmentAsync("worker.service", TestContext.Current.CancellationToken));
+        Assert.Equal(503, result.StatusCode);
+        using var json = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(result.Value));
+        Assert.Equal(expected, json.RootElement.GetProperty("error").GetString());
+    }
+
+    [Theory]
+    [InlineData(AgentResultCode.Denied, 404)]
+    [InlineData(AgentResultCode.NotFound, 404)]
+    [InlineData(AgentResultCode.Unauthenticated, 401)]
+    public async Task EnvironmentFailuresDoNotExposeMetadata(AgentResultCode code, int status)
+    {
+        var agent = new FakeClient(_ => new AgentResult.ListEnvironment(code, null));
+        var context = ContextWithCookie();
+        var page = Attach(new Serval.Web.Pages.Services.DetailsModel(agent), context);
+        Assert.Equal(status, Assert.IsAssignableFrom<StatusCodeResult>(await page.OnGetEnvironmentAsync(
+            "worker.service", TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal("no-store", context.Response.Headers.CacheControl);
+        if (code == AgentResultCode.Unauthenticated)
+            Assert.Contains("__Host-ServalSession=", context.Response.Headers.SetCookie.ToString(), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Environment.View")]
+    [InlineData("Environment.Reveal")]
+    public async Task GrantFormSendsOnlySelectedPermission(string operation)
+    {
+        var agent = new FakeClient(_ => new AgentResult.AddGrant(AgentResultCode.Success, 1));
+        var page = Attach(new Serval.Web.Pages.Grants.IndexModel(agent), ContextWithCookie());
+        page.Subject = "alice";
+        page.Service = "worker.service";
+        page.Operation = operation;
+        Assert.IsType<RedirectToPageResult>(await page.OnPostAddAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(operation, Assert.IsType<AgentRequest.AddGrant>(Assert.Single(agent.Requests)).Operation);
+    }
+
     [Fact]
     public async Task AnonymousRequestNeverCallsAgentOrSeesServiceMetadata()
     {

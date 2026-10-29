@@ -8,7 +8,7 @@ public interface ISystemServiceEnvironmentReader
     /// <summary>
     /// Returns all supported declarations or a value-free failure. Caller cancellation
     /// propagates as OperationCanceledException; the internal deadline returns Timeout.
-    /// The future Agent must authorize before invoking this library operation.
+    /// The Agent must authorize before invoking this library operation.
     /// </summary>
     Task<ServiceEnvironmentReadResult> ReadAsync(
         SystemServiceId serviceId,

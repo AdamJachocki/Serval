@@ -13,7 +13,7 @@ using Xunit;
 
 namespace Serval.Systemd.Tests;
 
-public sealed class RealSystemdEnvironmentSourceReaderTests
+public sealed partial class RealSystemdEnvironmentSourceReaderTests
 {
     public static bool IsEnabled => RealSystemdDbusTransportTests.IsEnabled;
 

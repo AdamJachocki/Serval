@@ -50,6 +50,8 @@ public sealed class AgentIpcClient : IAgentIpcClient
         AgentRequest.ListGrants => new AgentResult.ListGrants(AgentResultCode.Unavailable, null),
         AgentRequest.AddGrant => new AgentResult.AddGrant(AgentResultCode.Unavailable, null),
         AgentRequest.RemoveGrant => new AgentResult.RemoveGrant(AgentResultCode.Unavailable),
+        AgentRequest.ListEnvironment => new AgentResult.ListEnvironment(AgentResultCode.Unavailable, null),
+        AgentRequest.RevealEnvironmentVariable => new AgentResult.RevealEnvironmentVariable(AgentResultCode.Unavailable, null),
         _ => throw new AgentProtocolException(),
     };
 }

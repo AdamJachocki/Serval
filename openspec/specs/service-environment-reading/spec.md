@@ -18,7 +18,7 @@ The library SHALL accept one concrete system service identifier and caller cance
 - **THEN** the read succeeds with canonical identity, empty variable metadata, and the empty manager source
 
 ### Requirement: Enforce target policy before sensitive acquisition
-Every production entry and construction path SHALL validate the identifier, resolve identity, and enforce canonical/alias and privileged-family protection before querying value-bearing properties or reading source contents. Malformed identifiers and bare templates SHALL be rejected safely. An absent concrete service SHALL return `NotFound`; built-in protected targets SHALL return `ProtectedTarget`, while Serval privileged-family exclusions SHALL preserve the established identity-policy outcome. Calling the library directly SHALL NOT bypass these checks. The capability SHALL remain an internal-use library, without a registered Web or Agent endpoint or a public reveal operation. Future Agent callers MUST authenticate and authorize the exact service operation before invoking it.
+Every production entry and construction path SHALL validate the identifier, resolve identity, and enforce canonical/alias and privileged-family protection before querying value-bearing properties or reading source contents. Malformed identifiers and bare templates SHALL be rejected safely. An absent concrete service SHALL return `NotFound`; built-in protected targets SHALL return `ProtectedTarget`, while Serval privileged-family exclusions SHALL preserve the established identity-policy outcome. Calling the library directly SHALL NOT bypass these checks. The capability SHALL be available to the Agent through its authenticated and authorized environment operations; Web SHALL NOT register or call the reader directly. Agent callers MUST authenticate and authorize the exact canonical service operation before invoking it. Secret access SHALL be limited to the dedicated single-variable disclosure path, without a public unrestricted reveal API or whole-result serialization.
 
 #### Scenario: Direct protected alias request
 - **WHEN** a caller bypasses any hypothetical Web validation and requests an alias of a protected service
@@ -27,6 +27,11 @@ Every production entry and construction path SHALL validate the identifier, reso
 #### Scenario: Malicious or excluded identity
 - **WHEN** a direct request contains an invalid identifier, a bare template, or an excluded Serval privileged instance
 - **THEN** the established identity policy rejects it without exposing environment contents
+
+#### Scenario: Agent integration
+- **WHEN** the Agent invokes a metadata read or single-variable reveal
+- **THEN** it has authenticated the session and authorized the operation for the resolved canonical service before calling the reader
+- **AND** the library independently preserves its target checks, consistency validation, bounds and disposal contract
 
 ### Requirement: Validate consistency after computation
 Successful publication SHALL follow validation and target protection, acquisition, parsing, computation, final consistency validation, and a final cancellation/deadline check, in that order. Final validation SHALL recheck the relevant manager properties, configuration metadata, retained file-object metadata and path bindings, including continued absence of optional missing files. A detected difference or required property disappearing after resolution SHALL return `InconsistentSnapshot` without retry or partial publication. Transport failures SHALL retain their separate classification. The result SHALL claim only a bounded optimistic observation, not an atomic system snapshot or a future-start guarantee.

@@ -8,7 +8,7 @@ namespace Serval.Infrastructure.Policy;
 public sealed class AgentPolicyStore : IAgentPolicyStore
 {
     public const string DatabasePath = "/var/lib/serval/policy.db";
-    private const int SchemaVersion = 1;
+    private const int SchemaVersion = 2;
     private readonly string path;
 
     public AgentPolicyStore() : this(DatabasePath) { }
@@ -30,7 +30,7 @@ public sealed class AgentPolicyStore : IAgentPolicyStore
             return;
         }
 
-        if (current != 0)
+        if (current is not (0 or 1))
         {
             throw new InvalidOperationException("Unsupported Agent policy schema.");
         }
@@ -38,13 +38,28 @@ public sealed class AgentPolicyStore : IAgentPolicyStore
         using var transaction = connection.BeginTransaction();
         using var create = connection.CreateCommand();
         create.Transaction = transaction;
-        create.CommandText = """
+        create.CommandText = current == 1 ? """
+            CREATE TABLE grants_v2 (
+                id INTEGER PRIMARY KEY,
+                subject_kind TEXT NOT NULL CHECK(subject_kind IN ('User','Group')),
+                subject_name TEXT NOT NULL,
+                subject_id INTEGER NOT NULL,
+                operation TEXT NOT NULL CHECK(operation IN ('Service.View','Environment.View','Environment.Reveal')),
+                service TEXT NOT NULL,
+                UNIQUE(subject_kind, subject_name, subject_id, operation, service)
+            );
+            INSERT INTO grants_v2 SELECT id, subject_kind, subject_name, subject_id, operation, service FROM grants;
+            DROP TABLE grants;
+            ALTER TABLE grants_v2 RENAME TO grants;
+            ALTER TABLE audit ADD COLUMN variable_name TEXT;
+            PRAGMA user_version = 2;
+            """ : """
             CREATE TABLE grants (
                 id INTEGER PRIMARY KEY,
                 subject_kind TEXT NOT NULL CHECK(subject_kind IN ('User','Group')),
                 subject_name TEXT NOT NULL,
                 subject_id INTEGER NOT NULL,
-                operation TEXT NOT NULL CHECK(operation = 'Service.View'),
+                operation TEXT NOT NULL CHECK(operation IN ('Service.View','Environment.View','Environment.Reveal')),
                 service TEXT NOT NULL,
                 UNIQUE(subject_kind, subject_name, subject_id, operation, service)
             );
@@ -56,9 +71,10 @@ public sealed class AgentPolicyStore : IAgentPolicyStore
                 service TEXT,
                 outcome TEXT NOT NULL,
                 correlation_id TEXT NOT NULL,
-                timestamp_utc TEXT NOT NULL
+                timestamp_utc TEXT NOT NULL,
+                variable_name TEXT
             );
-            PRAGMA user_version = 1;
+            PRAGMA user_version = 2;
             """;
         create.ExecuteNonQuery();
         transaction.Commit();
@@ -172,13 +188,14 @@ public sealed class AgentPolicyStore : IAgentPolicyStore
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            INSERT INTO audit(actor_name, actor_uid, operation, service, outcome, correlation_id, timestamp_utc)
-            VALUES($actor, $uid, $operation, $service, $outcome, $correlation, $timestamp)
+            INSERT INTO audit(actor_name, actor_uid, operation, service, outcome, correlation_id, timestamp_utc, variable_name)
+            VALUES($actor, $uid, $operation, $service, $outcome, $correlation, $timestamp, $variable)
             """;
         command.Parameters.AddWithValue("$actor", (object?)audit.ActorName ?? DBNull.Value);
         command.Parameters.AddWithValue("$uid", (object?)audit.ActorUid ?? DBNull.Value);
         command.Parameters.AddWithValue("$operation", audit.Operation);
         command.Parameters.AddWithValue("$service", (object?)audit.Service ?? DBNull.Value);
+        command.Parameters.AddWithValue("$variable", (object?)audit.VariableName ?? DBNull.Value);
         command.Parameters.AddWithValue("$outcome", audit.Outcome);
         command.Parameters.AddWithValue("$correlation", audit.CorrelationId);
         command.Parameters.AddWithValue("$timestamp", audit.Timestamp.ToUniversalTime().ToString("O", System.Globalization.CultureInfo.InvariantCulture));
@@ -191,7 +208,7 @@ public sealed class AgentPolicyStore : IAgentPolicyStore
         if (grant.SubjectKind is not ("User" or "Group") ||
             grant.SubjectName.Length is < 1 or > 128 ||
             grant.SubjectName.Any(value => value is '/' or '\0' || char.IsControl(value)) ||
-            grant.Operation != "Service.View" ||
+            !ServiceOperations.IsSupported(grant.Operation) ||
             grant.Service.Length is < 1 or > 255 ||
             grant.Service.EndsWith("@.service", StringComparison.Ordinal))
         {
@@ -207,7 +224,9 @@ public sealed class AgentPolicyStore : IAgentPolicyStore
         if (audit.ActorName?.Length > 128 ||
             audit.ActorName?.Any(value => value is '/' or '\0' || char.IsControl(value)) == true ||
             audit.Operation is not ("Login" or "Logout" or "ListServices" or
-                "InspectService" or "ListGrants" or "AddGrant" or "RemoveGrant") ||
+                "InspectService" or "ListGrants" or "AddGrant" or "RemoveGrant" or
+                "ListEnvironment" or "RevealEnvironmentVariable") ||
+            (audit.VariableName is not null && !ServiceOperations.IsValidVariableName(audit.VariableName)) ||
             audit.Service?.Length > 255 || audit.Outcome.Length is < 1 or > 32 ||
             audit.Outcome is not ("Success" or "Denied" or "NotFound" or
                 "Unauthenticated" or "InvalidRequest" or "Unavailable") ||

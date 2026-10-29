@@ -1,14 +1,16 @@
 @page
 @model LogoutModel
 @{
-    ViewData["Title"] = "Sign out";
+    ViewData["Title"] = "Wylogowanie";
 }
 
-<h1>Sign out</h1>
+<section class="simple-panel">
+<h1>Wylogowanie</h1>
 @if (Model.Error is not null)
 {
-    <div class="alert alert-danger" role="alert">@Model.Error</div>
+    <div class="alert alert--danger" role="alert">@Model.Error</div>
 }
 <form method="post">
-    <button type="submit" class="btn btn-primary">Try again</button>
+    <button type="submit" class="button button--primary">Spróbuj ponownie</button>
 </form>
+</section>

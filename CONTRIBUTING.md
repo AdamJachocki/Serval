@@ -178,6 +178,35 @@ result). This separate CI smoke checks real systemd, direct Agent requests and
 rendered HTTP pages; actual F5 breakpoint and Shift+F5 acceptance remains a Visual
 Studio check.
 
+## Environment browser verification
+
+The environment browser tests use an installed Node.js/Playwright runtime and
+Chromium. Set `NODE_PATH` when Playwright is supplied outside this repository;
+optionally set `SERVAL_BROWSER_EXECUTABLE` to the installed Chromium executable.
+No browser dependency is included in production publishing.
+
+Set `SERVAL_BROWSER_TESTS=1`, then run
+`dotnet test --project tests/Serval.Web.Tests`. This starts a local HTTPS Kestrel
+test host with an ephemeral test certificate and a typed fixture client. It
+checks single-row reveal, inert multiline text, manual hiding, no timer, fresh
+reveal requests, canceled late responses, refresh/history reset, keyboard input
+and a narrow viewport. Without the opt-in, the browser test is explicitly skipped.
+
+For the complete real-systemd path, run
+`node tests/Serval.Web.Tests/browser/real-systemd.cjs` with Docker Desktop in
+Linux-container mode. The runner builds the existing disposable development
+image, creates a unique privileged container with private namespaces and no host
+mounts, and publishes one random port on host loopback. It seeds private generated
+environment values before the product observation window and uses the documented
+public disposable account. It verifies exact one-value disclosure, value-free
+metadata/audit, CSRF and protected-target denials, unchanged source bytes and
+service state. The runner removes its container, image and temporary database
+on exit. It never records screenshots, traces or value-bearing diagnostics.
+
+These local checks do not replace the supported real-systemd CI matrix. The
+existing systemd contract harness also exercises the Agent environment operations
+against private manifests and its file/lifecycle/reload observers.
+
 ## Debian 13 systemd Compose smoke test
 
 Use Docker Desktop in Linux-container mode (or a Linux Docker Engine), Docker Compose v2, and PowerShell 7. From the repository root, run:

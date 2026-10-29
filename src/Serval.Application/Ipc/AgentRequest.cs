@@ -18,6 +18,12 @@ public abstract record AgentRequest(string CorrelationId)
     public sealed record ListGrants(string CorrelationId, string Session)
         : AgentRequest(CorrelationId);
 
+    public sealed record ListEnvironment(string CorrelationId, string Session, string Service)
+        : AgentRequest(CorrelationId);
+
+    public sealed record RevealEnvironmentVariable(string CorrelationId, string Session, string Service, string Name)
+        : AgentRequest(CorrelationId);
+
     public sealed record AddGrant(
         string CorrelationId, string Session, string SubjectKind, string Subject,
         string Operation, string Service) : AgentRequest(CorrelationId);
@@ -42,7 +48,7 @@ public sealed record AgentService(
 public sealed record AgentGrant(
     long Id, string SubjectKind, string Subject, string Operation, string Service);
 
-/// <summary>Only operation-specific, non-secret results are exposed to Web.</summary>
+/// <summary>Operation-specific results; only explicit single-variable disclosure carries a value.</summary>
 public abstract record AgentResult(AgentResultCode Code)
 {
     public sealed record Login(AgentResultCode Code, string? Session) : AgentResult(Code);
@@ -61,4 +67,13 @@ public abstract record AgentResult(AgentResultCode Code)
     public sealed record AddGrant(AgentResultCode Code, long? GrantId) : AgentResult(Code);
 
     public sealed record RemoveGrant(AgentResultCode Code) : AgentResult(Code);
+
+    public sealed record ListEnvironment(AgentResultCode Code, AgentEnvironment? Environment,
+        string? Failure = null) : AgentResult(Code);
+
+    public sealed record RevealEnvironmentVariable(AgentResultCode Code, RevealedEnvironmentVariable? Variable,
+        string? Failure = null) : AgentResult(Code), IDisposable
+    {
+        public void Dispose() => Variable?.Dispose();
+    }
 }

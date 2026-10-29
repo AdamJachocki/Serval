@@ -33,11 +33,24 @@ The authoritative development invariants are maintained in [`AGENTS.md`](AGENTS.
 
 `Serval.Web` runs under the dedicated unprivileged `serval-web` account. Only
 `Serval.Agent` runs as root. Its local Unix socket checks the connecting
-process's kernel UID. Every privileged request is parsed as one of seven typed
+process's kernel UID. Every privileged request is parsed as one of nine typed
 operations and checked again by the Agent; Web-supplied identity, role or
 service authorization is never authority. The Agent does not expose command
-execution, arbitrary filesystem access, environment values, or service
-mutations through this protocol.
+execution, arbitrary filesystem access, bulk environment disclosure, or service
+mutations through this protocol. Environment metadata requires `Environment.View`;
+single-value disclosure requires both `Environment.View` and `Environment.Reveal`.
+The Agent authorizes before acquisition, rechecks current identity, grants and
+protection after acquisition, and records value-free audit metadata before release.
+Ordinary service inspection never acquires environment values.
+
+Each reveal makes a fresh supported-declarations read. Only the requested value
+crosses IPC in a disposable payload with redacted ordinary serialization and
+diagnostics. Owned buffers are cleared on disposal and transport exits. Web writes
+the value only to an anti-forgery-protected, no-store POST response and disposes
+the payload. Browser rendering uses text; manual hiding and navigation discard
+client state. There is no hiding timer. Managed strings, serializer internals and
+browser memory cannot guarantee complete erasure, and revocation cannot recall
+values already received. No values, hashes, lengths or source paths enter audit.
 
 The Agent authenticates Linux accounts with the `serval` PAM service and
 rechecks account status, Linux identity and group membership for authenticated

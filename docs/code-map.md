@@ -26,6 +26,15 @@ Serval/
 
 ## Production code
 
+Environment browsing spans `Application/Ipc/AgentEnvironment.cs` (value-free
+metadata and disposable single-value payload), `AgentProtocol.cs` (explicit
+codecs), `Agent/AgentDispatcher.cs` (authorization and audit), and
+`Web/Pages/Services/Details.cshtml.cs` with `wwwroot/js/service-environment.js`
+(independent metadata loading and reveal/hide state). `Authorization/ServiceOperations.cs`
+defines the operation allowlist and bounded disclosure-name grammar.
+`Infrastructure/Policy/AgentPolicyStore.cs` owns the transactional schema-2 migration.
+Operator guidance is in [`service-environment.md`](service-environment.md).
+
 ### `src/Serval.Domain`
 
 Core domain types.
@@ -174,8 +183,8 @@ parsing, composition, final validation, cleanup and publication.
 internal disposable acquisition session and safe Linux file boundary; the
 session retains transport and filesystem observations while raw buffers transfer
 to parsing/composition. `SystemdEnvironmentComposer` remains the internal I/O-free
-composition boundary. The adapter is not registered in Web or Agent and exposes
-no public value-reveal operation.
+composition boundary. Only Agent registers the adapter; Web uses the narrow
+metadata and single-variable IPC operations and cannot call its internal reveal API.
 
 #### Protected services
 
@@ -232,6 +241,8 @@ src/Serval.Web/
 
 `wwwroot/` contains static web assets. Vendored libraries under `wwwroot/lib/` normally do not need to be inspected during application work.
 
+The implemented Web tokens, assets, component conventions, responsive behavior and service-status presentation are documented in [`frontend-design.md`](frontend-design.md).
+
 `AgentIpcClient.cs` sends typed local socket requests. `ServalSessionCookie.cs`
 holds the opaque Agent session in a browser session cookie. `Pages/` contains
 login, logout, filtered service inventory and inspection, and administrator
@@ -254,7 +265,7 @@ src/Serval.Agent/AgentConfiguration.cs
 
 `Program.cs` validates root-owned deployment configuration and composes the
 Agent. `AgentSocketServer` checks kernel peer credentials and bounds local
-connections. `AgentDispatcher` validates and authorizes the seven allowed
+connections. `AgentDispatcher` validates and authorizes the nine allowed
 operations. `AgentSessions`, `LinuxPam` and `LinuxAccountChecks` own session,
 PAM and current Linux identity checks. `Serval.Systemd` provides read-only
 service inventory and inspection, and its `SystemdProtectedServicePolicy`
