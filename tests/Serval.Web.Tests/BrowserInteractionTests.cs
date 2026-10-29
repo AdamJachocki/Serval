@@ -136,6 +136,16 @@ public sealed class BrowserInteractionTests
                 Assert.Equal("none", await page.Locator(".mobile-header").EvaluateAsync<string>("element => getComputedStyle(element).display"));
             }
         }
+
+        await page.GotoAsync(new Uri(baseAddress, "/Grants").ToString());
+        await page.GetByLabel("Uprawnienie", new() { Exact = true }).WaitForAsync();
+        foreach (var width in new[] { 1024, 1100, 1279 })
+        {
+            await page.SetViewportSizeAsync(width, 900);
+            Assert.False(await HasDocumentOverflow(page));
+            Assert.True(await page.GetByLabel("Uprawnienie", new() { Exact = true }).IsVisibleAsync());
+            Assert.True(await page.GetByRole(AriaRole.Button, new() { Name = "Nadaj uprawnienie" }).IsVisibleAsync());
+        }
     }
 
     [Fact]

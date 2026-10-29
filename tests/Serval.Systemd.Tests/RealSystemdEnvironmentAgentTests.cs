@@ -28,6 +28,34 @@ public sealed partial class RealSystemdEnvironmentSourceReaderTests
             new AgentRequest.Login("env-login", "admin", "fixture"), TestContext.Current.CancellationToken));
         var session = login.Session!;
         await using var observation = await ProductObservation.CreateAsync(prefix, canonical, sourceFiles, TestContext.Current.CancellationToken);
+        var readerLogin = Assert.IsType<AgentResult.Login>(await dispatcher.DispatchAsync(
+            new AgentRequest.Login("env-reader-login", "reader", "fixture"), TestContext.Current.CancellationToken));
+        var readerSession = readerLogin.Session!;
+        var missingView = Assert.IsType<AgentResult.ListEnvironment>(await dispatcher.DispatchAsync(
+            new AgentRequest.ListEnvironment("env-reader-missing-view", readerSession, canonical), TestContext.Current.CancellationToken));
+        Assert.Equal(AgentResultCode.Denied, missingView.Code);
+        using (var missingReveal = Assert.IsType<AgentResult.RevealEnvironmentVariable>(await dispatcher.DispatchAsync(
+            new AgentRequest.RevealEnvironmentVariable("env-reader-missing-reveal", readerSession, canonical, "CONFIG"), TestContext.Current.CancellationToken)))
+            Assert.Equal(AgentResultCode.Denied, missingReveal.Code);
+        var otherService = prefix + "-environment-file.service";
+        audit.Grants.AddRange(
+        [
+            new StoredGrant(1, "User", "reader", 1002, ServiceOperations.EnvironmentView, otherService),
+            new StoredGrant(2, "User", "reader", 1002, ServiceOperations.EnvironmentReveal, otherService),
+        ]);
+        var unauthorizedService = Assert.IsType<AgentResult.ListEnvironment>(await dispatcher.DispatchAsync(
+            new AgentRequest.ListEnvironment("env-reader-unauthorized-service", readerSession, canonical), TestContext.Current.CancellationToken));
+        Assert.Equal(AgentResultCode.Denied, unauthorizedService.Code);
+        audit.Grants.Clear();
+        audit.Grants.Add(new StoredGrant(3, "User", "reader", 1002, ServiceOperations.EnvironmentView, canonical));
+        var viewOnly = Assert.IsType<AgentResult.ListEnvironment>(await dispatcher.DispatchAsync(
+            new AgentRequest.ListEnvironment("env-reader-view-only", readerSession, canonical), TestContext.Current.CancellationToken));
+        Assert.Equal(AgentResultCode.Success, viewOnly.Code);
+        Assert.False(viewOnly.Environment!.CanReveal);
+        using (var insufficientReveal = Assert.IsType<AgentResult.RevealEnvironmentVariable>(await dispatcher.DispatchAsync(
+            new AgentRequest.RevealEnvironmentVariable("env-reader-insufficient-reveal", readerSession, canonical, "CONFIG"), TestContext.Current.CancellationToken)))
+            Assert.Equal(AgentResultCode.Denied, insufficientReveal.Code);
+        audit.Grants.Clear();
         var metadata = Assert.IsType<AgentResult.ListEnvironment>(await dispatcher.DispatchAsync(
             new AgentRequest.ListEnvironment("env-list", session, target), TestContext.Current.CancellationToken));
         Assert.Equal(AgentResultCode.Success, metadata.Code);
@@ -91,7 +119,8 @@ public sealed partial class RealSystemdEnvironmentSourceReaderTests
     private sealed class EnvironmentAudit : IAgentPolicyStore
     {
         public List<AuditEntry> Entries { get; } = [];
-        public IReadOnlyList<StoredGrant> ListGrants() => [];
+        public List<StoredGrant> Grants { get; } = [];
+        public IReadOnlyList<StoredGrant> ListGrants() => Grants.ToArray();
         public long AddGrant(StoredGrant grant, AuditEntry audit) => throw new NotSupportedException();
         public bool RemoveGrant(long id, AuditEntry audit) => throw new NotSupportedException();
         public void AppendAudit(AuditEntry audit) => Entries.Add(audit);
@@ -100,11 +129,20 @@ public sealed partial class RealSystemdEnvironmentSourceReaderTests
     private sealed class EnvironmentIdentity : IAgentIdentityChecks
     {
         private static readonly LinuxAccount Admin = new("admin", 1001, 1001, [new LinuxGroup("sudo", 27)]);
+        private static readonly LinuxAccount Reader = new("reader", 1002, 1002, []);
         public Task<AgentAuthentication> AuthenticateAsync(string username, string password, CancellationToken cancellationToken) =>
-            Task.FromResult(new AgentAuthentication(AgentResultStatus.Success, Admin));
-        public Task<bool> IsCurrentAsync(string name, uint uid, CancellationToken cancellationToken) => Task.FromResult(name == Admin.Name && uid == Admin.Uid);
-        public Task<LinuxAccount?> ResolveAccountAsync(string username, CancellationToken cancellationToken) => Task.FromResult<LinuxAccount?>(username == Admin.Name ? Admin : null);
-        public Task<LinuxAccount?> ResolveAccountByUidAsync(uint uid, CancellationToken cancellationToken) => Task.FromResult<LinuxAccount?>(uid == Admin.Uid ? Admin : null);
+            Task.FromResult(username switch
+            {
+                "admin" => new AgentAuthentication(AgentResultStatus.Success, Admin),
+                "reader" => new AgentAuthentication(AgentResultStatus.Success, Reader),
+                _ => new AgentAuthentication(AgentResultStatus.Denied, null),
+            });
+        public Task<bool> IsCurrentAsync(string name, uint uid, CancellationToken cancellationToken) =>
+            Task.FromResult(name == Admin.Name && uid == Admin.Uid || name == Reader.Name && uid == Reader.Uid);
+        public Task<LinuxAccount?> ResolveAccountAsync(string username, CancellationToken cancellationToken) =>
+            Task.FromResult<LinuxAccount?>(username == Admin.Name ? Admin : username == Reader.Name ? Reader : null);
+        public Task<LinuxAccount?> ResolveAccountByUidAsync(uint uid, CancellationToken cancellationToken) =>
+            Task.FromResult<LinuxAccount?>(uid == Admin.Uid ? Admin : uid == Reader.Uid ? Reader : null);
         public Task<LinuxGroup?> ResolveGroupAsync(string groupName, CancellationToken cancellationToken) => Task.FromResult<LinuxGroup?>(null);
     }
 }

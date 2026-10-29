@@ -69,7 +69,7 @@ const exec = (...args) => docker('exec', name, ...args);
         await page.locator('input[name=Password]').fill('serval');
         const [loginResponse] = await Promise.all([
             page.waitForResponse(response => new URL(response.url()).pathname === '/Login' && response.request().method() === 'POST'),
-            page.getByRole('button', { name: 'Sign in', exact: true }).click()
+            page.getByRole('button', { name: 'Zaloguj się', exact: true }).click()
         ]);
         phase = 'login-http-' + loginResponse.status();
         check(loginResponse.status() === 302);

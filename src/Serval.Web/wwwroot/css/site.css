@@ -215,6 +215,10 @@ input::placeholder { color: #9aabba; opacity: 1; }
 .environment-row__value { grid-column: 1; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .environment-row > .button { grid-column: 2; grid-row: 1 / span 3; align-self: center; }
 
+@media (max-width: 1279px) {
+  .grants-form form { grid-template-columns: 1fr 1fr; }
+}
+
 @media (max-width: 1023px) {
   .app-shell { display: block; }
   .sidebar { display: none; }
@@ -227,7 +231,6 @@ input::placeholder { color: #9aabba; opacity: 1; }
   .breadcrumb-strip, .app-content { padding-right: var(--obs-space-6); padding-left: var(--obs-space-6); }
   .service-toolbar { grid-template-columns: minmax(12rem, 1fr) minmax(11rem, 16rem) auto; }
   .service-toolbar .button--secondary { grid-column: auto; }
-  .grants-form form { grid-template-columns: 1fr 1fr; }
 }
 
 @media (max-width: 767px) {
