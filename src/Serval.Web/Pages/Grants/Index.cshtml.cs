@@ -16,6 +16,9 @@ public sealed class IndexModel(IAgentIpcClient agent) : PageModel
     public string Service { get; set; } = string.Empty;
 
     [BindProperty]
+    public string Operation { get; set; } = "Service.View";
+
+    [BindProperty]
     public long GrantId { get; set; }
 
     public IReadOnlyList<AgentGrant> Grants { get; private set; } = [];
@@ -35,7 +38,7 @@ public sealed class IndexModel(IAgentIpcClient agent) : PageModel
 
         var result = (AgentResult.AddGrant)await agent.SendAsync(
             new AgentRequest.AddGrant(Guid.NewGuid().ToString("N"), session,
-                SubjectKind, Subject, "Service.View", Service), cancellationToken);
+                SubjectKind, Subject, Operation, Service), cancellationToken);
         if (result.Code == AgentResultCode.Success)
         {
             return RedirectToPage();

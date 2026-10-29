@@ -10,9 +10,10 @@ One read accepts only `SystemServiceId` and `CancellationToken` through
 `ISystemServiceEnvironmentReader.ReadAsync`. Application contracts live in
 `Serval.Application`; existing service identity remains in `Serval.Domain`.
 All D-Bus, parsing, file access, composition and application-contract adaptation
-stay in `Serval.Systemd`. The library is reserved for the future Agent; never
-register it in Web. It introduces no endpoint, IPC, ACL, database, public reveal
-operation or new root capability.
+stay in `Serval.Systemd`. Only Agent registers the library; never register it in
+Web. The authorized integration uses `ListEnvironment` and
+`RevealEnvironmentVariable`, with independent environment grants. See
+`identity-deployment.md` for the permission matrix and migration procedure.
 
 `SupportedDeclarations` means the complete result of the manager-loaded
 `Environment` property plus current contents of its declared `EnvironmentFiles`.
@@ -36,10 +37,22 @@ telemetry, exception messages, snapshots or test failure output.
 `EnvironmentVariableMetadata` remains the separate name/provenance projection;
 it contains neither a value nor its hash or length. `EnvironmentValues` owns
 private character arrays and has no public construction, mutation or reveal API.
-Only the application assembly and its friend `Serval.Systemd` may compute/read
-values (the test assembly is a friend for verification). This is a code boundary,
-not a sandbox against reflection. A future authorized reveal path needs an explicit
-design change; no Web or Agent access is granted here.
+The application assembly and its friends `Serval.Systemd` and `Serval.Agent` may
+access values internally (test assemblies are friends for verification). This is
+a code boundary, not a sandbox against reflection. Agent borrows only the selected
+span after authorization and copies it into `RevealedEnvironmentVariable`; the
+whole read is then disposed. Web has no generic reveal access.
+
+Metadata reads also dispose the complete snapshot immediately after projection.
+Every reveal performs a new complete read and returns its current source label;
+source ordinals cannot be joined across requests. Both environment operations
+retain the reader's five-second budget. IPC requests are bounded to 16 KiB and
+results to 1 MiB. Reveal names use ASCII identifier grammar and at most 4096
+characters; longer discovered names remain metadata-only. Overflow is an
+unavailable result, never truncation or partial publication. The dedicated
+single-value payload is redacted by ordinary JSON and diagnostic formatting;
+only explicit IPC and HTTP writers disclose it. Owned transport buffers are
+cleared on all exits; framework-managed temporary copies cannot be guaranteed erased.
 
 The internal constructor and `Set` copy input into owned arrays. The caller still
 owns and must release its input buffers; input strings, D-Bus strings, or copies
@@ -254,7 +267,7 @@ wins). Asynchronous reads receive the linked token. Linux `open`, `openat2`,
 checks cancellation immediately before and after them but cannot interrupt a
 syscall already blocked in the kernel. A result returned after cancellation is
 released and never published. A killable helper process is intentionally not
-introduced for this internal-only capability; a future Agent operation may
+introduced for this bounded capability; future work may
 revisit isolation if operational evidence requires a strict wall-clock bound.
 
 ## Failure and trust boundary
@@ -347,8 +360,8 @@ systemd evidence does not substitute for that CI matrix.
 M2.6 remains an internal mechanism. M2.7 performs acquisition and
 decreasing-allowance parsing before invoking it under the shared operation
 deadline. No Web integration, IPC operation, or Agent authorization is added.
-A future Agent exposure must still authenticate and authorize the exact reveal
-operation and enforce protected-service policy before any value-bearing read.
+The Agent integration described above now authenticates and authorizes the exact
+operation and enforces protected-service policy before any value-bearing read.
 
 ### M2.7 application-reader integration
 
@@ -406,9 +419,9 @@ not proof that the complete CI matrix passed.
 
 No Web or Agent registration, inventory behavior change, endpoint, authorization
 decision, audit sink, cache, persistence, source mutation, daemon reload or
-lifecycle action is part of M2.7. Before any future Agent caller invokes this
-value-bearing library, it must authenticate the IPC peer, establish trustworthy
-delegation, authorize both the exact service view and environment reveal, and
+lifecycle action was part of M2.7. The current Agent caller authenticates the IPC
+peer, establishes trustworthy delegation, authorizes environment view (and
+environment reveal for disclosure) on the exact canonical service, and must
 enforce protected-target policy at the privileged boundary. Caller-supplied roles
 or authorization flags are not evidence.
 

@@ -118,9 +118,17 @@ The Agent verifies the connecting Web process's kernel UID and owns PAM
 authentication, in-memory sessions, service authorization, grant storage and
 audit. Web renders the Agent's filtered results and holds only an opaque session
 credential in a browser session cookie. The Agent provides typed login, logout,
-service read and grant-management operations; it does not provide general
+service read, environment metadata, single-variable reveal and grant-management
+operations; it does not provide general
 command or filesystem access. See [`docs/identity-deployment.md`](docs/identity-deployment.md)
 for the deployed identities and paths.
+
+Only Agent registers `ISystemServiceEnvironmentReader`. Environment operations
+authorize canonical services before acquisition and recheck authorization before
+publication. Metadata is value-free; reveal copies exactly one selected value to
+a disposable IPC payload and disposes the complete snapshot. Web never accesses
+the systemd reader or source paths. The supported-declarations model and lifetime
+constraints are documented in `docs/systemd-environment-strategy.md`.
 
 ## External boundaries
 

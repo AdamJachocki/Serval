@@ -25,7 +25,16 @@
         <label asp-for="Service" class="form-label">Canonical service name</label>
         <input asp-for="Service" class="form-control" placeholder="example.service" />
     </div>
-    <button type="submit" class="btn btn-primary">Grant Service.View</button>
+    <div class="mb-3">
+        <label asp-for="Operation" class="form-label">Uprawnienie</label>
+        <select asp-for="Operation" class="form-select" aria-describedby="grant-dependencies">
+            <option>Service.View</option>
+            <option>Environment.View</option>
+            <option>Environment.Reveal</option>
+        </select>
+        <p id="grant-dependencies">Otwarcie strony usługi wymaga Service.View. Pokaż wymaga Environment.View i Environment.Reveal. Zależne uprawnienia należy nadać osobno.</p>
+    </div>
+    <button type="submit" class="btn btn-primary">Nadaj uprawnienie</button>
 </form>
 
 <table class="table">

@@ -2,6 +2,8 @@ using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Serval.Application.Authorization;
+using Serval.Application.Services;
 
 namespace Serval.Application.Ipc;
 
@@ -95,6 +97,14 @@ public static class AgentProtocol
                     ["version", "operation", "correlationId", "session", "service"],
                     () => new AgentRequest.InspectService(correlationId,
                         GetString(fields, "session", 128), GetString(fields, "service", 255))),
+                "ListEnvironment" => WithFields(fields,
+                    ["version", "operation", "correlationId", "session", "service"],
+                    () => new AgentRequest.ListEnvironment(correlationId,
+                        GetString(fields, "session", 128), GetString(fields, "service", 255))),
+                "RevealEnvironmentVariable" => WithFields(fields,
+                    ["version", "operation", "correlationId", "session", "service", "name"],
+                    () => new AgentRequest.RevealEnvironmentVariable(correlationId,
+                        GetString(fields, "session", 128), GetString(fields, "service", 255), GetVariableName(fields))),
                 "ListGrants" => WithFields(fields, ["version", "operation", "correlationId", "session"],
                     () => new AgentRequest.ListGrants(correlationId, GetString(fields, "session", 128))),
                 "AddGrant" => WithFields(fields,
@@ -142,16 +152,43 @@ public static class AgentProtocol
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(result);
-        var payload = JsonSerializer.SerializeToUtf8Bytes(ToWireResult(result));
-        if (payload.Length is 0 or > MaximumResultBytes)
+        var payload = new byte[MaximumResultBytes];
+        try
+        {
+            using var buffer = new MemoryStream(payload, writable: true);
+            buffer.SetLength(0);
+            using (var writer = new Utf8JsonWriter(buffer))
+            {
+                if (result is AgentResult.RevealEnvironmentVariable reveal)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("code", reveal.Code.ToString());
+                    if (reveal.Code == AgentResultCode.Success)
+                    {
+                        if (reveal.Variable is null) throw new AgentProtocolException();
+                        writer.WritePropertyName("variable");
+                        reveal.Variable.Write(writer);
+                    }
+                    else if (reveal.Failure is not null)
+                        writer.WriteString("failure", reveal.Failure);
+                    writer.WriteEndObject();
+                }
+                else
+                    JsonSerializer.Serialize(writer, ToWireResult(result));
+            }
+            var header = new byte[4];
+            BinaryPrimitives.WriteInt32BigEndian(header, checked((int)buffer.Length));
+            await stream.WriteAsync(header, cancellationToken).ConfigureAwait(false);
+            await stream.WriteAsync(payload.AsMemory(0, checked((int)buffer.Length)), cancellationToken).ConfigureAwait(false);
+        }
+        catch (NotSupportedException)
         {
             throw new AgentProtocolException();
         }
-
-        var header = new byte[4];
-        BinaryPrimitives.WriteInt32BigEndian(header, payload.Length);
-        await stream.WriteAsync(header, cancellationToken).ConfigureAwait(false);
-        await stream.WriteAsync(payload, cancellationToken).ConfigureAwait(false);
+        finally
+        {
+            CryptographicOperations.ZeroMemory(payload);
+        }
     }
 
     public static async Task WriteInvalidRequestAsync(Stream stream, CancellationToken cancellationToken)
@@ -188,7 +225,7 @@ public static class AgentProtocol
         try
         {
             await stream.ReadExactlyAsync(frame, cancellationToken).ConfigureAwait(false);
-            using var document = JsonDocument.Parse(StrictUtf8.GetString(frame));
+            using var document = JsonDocument.Parse(frame);
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object ||
                 !root.TryGetProperty("code", out var codeField) ||
@@ -198,6 +235,9 @@ public static class AgentProtocol
             {
                 throw new AgentProtocolException();
             }
+
+            if (request is AgentRequest.ListEnvironment or AgentRequest.RevealEnvironmentVariable)
+                return ReadEnvironmentResult(root, request, code);
 
             if (code != AgentResultCode.Success)
             {
@@ -244,6 +284,8 @@ public static class AgentProtocol
         AgentRequest.ListGrants => new AgentResult.ListGrants(code, null),
         AgentRequest.AddGrant => new AgentResult.AddGrant(code, null),
         AgentRequest.RemoveGrant => new AgentResult.RemoveGrant(code),
+        AgentRequest.ListEnvironment => new AgentResult.ListEnvironment(code, null),
+        AgentRequest.RevealEnvironmentVariable => new AgentResult.RevealEnvironmentVariable(code, null),
         _ => throw new AgentProtocolException(),
     };
 
@@ -256,6 +298,8 @@ public static class AgentProtocol
         AgentRequest.ListGrants item => new { version = Version, operation = "ListGrants", correlationId = item.CorrelationId, session = item.Session },
         AgentRequest.AddGrant item => new { version = Version, operation = "AddGrant", correlationId = item.CorrelationId, session = item.Session, subjectKind = item.SubjectKind, subject = item.Subject, grantOperation = item.Operation, service = item.Service },
         AgentRequest.RemoveGrant item => new { version = Version, operation = "RemoveGrant", correlationId = item.CorrelationId, session = item.Session, grantId = item.GrantId },
+        AgentRequest.ListEnvironment item => new { version = Version, operation = "ListEnvironment", correlationId = item.CorrelationId, session = item.Session, service = item.Service },
+        AgentRequest.RevealEnvironmentVariable item => new { version = Version, operation = "RevealEnvironmentVariable", correlationId = item.CorrelationId, session = item.Session, service = item.Service, name = item.Name },
         _ => throw new AgentProtocolException(),
     };
 
@@ -268,6 +312,8 @@ public static class AgentProtocol
         AgentResult.ListGrants item => new { code = item.Code.ToString(), grants = item.Grants },
         AgentResult.AddGrant item => new { code = item.Code.ToString(), grantId = item.GrantId },
         AgentResult.RemoveGrant item => new { code = item.Code.ToString() },
+        AgentResult.ListEnvironment item when item.Code == AgentResultCode.Success => new { code = item.Code.ToString(), environment = item.Environment },
+        AgentResult.ListEnvironment item => new { code = item.Code.ToString(), failure = item.Failure },
         _ => throw new AgentProtocolException(),
     };
 
@@ -326,6 +372,78 @@ public static class AgentProtocol
 
     private static bool IsCorrelationCharacter(char value) =>
         value is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9' or '-' or '_';
+
+    private static string GetVariableName(Dictionary<string, JsonElement> fields)
+    {
+        var name = GetString(fields, "name", 4096);
+        return ServiceOperations.IsValidVariableName(name) ? name : throw new AgentProtocolException();
+    }
+
+    private static void RequireFields(JsonElement element, params string[] allowed)
+    {
+        if (element.ValueKind != JsonValueKind.Object) throw new AgentProtocolException();
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var property in element.EnumerateObject())
+            if (!names.Add(property.Name) || !allowed.Contains(property.Name, StringComparer.Ordinal))
+                throw new AgentProtocolException();
+        if (names.Count != allowed.Length) throw new AgentProtocolException();
+    }
+
+    private static AgentResult ReadEnvironmentResult(JsonElement root, AgentRequest request, AgentResultCode code)
+    {
+        if (root.GetProperty("code").GetString() != code.ToString()) throw new AgentProtocolException();
+        if (code != AgentResultCode.Success)
+        {
+            if (root.TryGetProperty("failure", out _)) RequireFields(root, "code", "failure");
+            else RequireFields(root, "code");
+            string? failure = root.TryGetProperty("failure", out var field) && field.ValueKind != JsonValueKind.Null
+                ? field.GetString() : null;
+            if (failure is not null && (!Enum.TryParse<EnvironmentReadFailureCode>(failure, out var parsed) ||
+                !Enum.IsDefined(parsed) || parsed.ToString() != failure)) throw new AgentProtocolException();
+            return request is AgentRequest.ListEnvironment
+                ? new AgentResult.ListEnvironment(code, null, failure)
+                : new AgentResult.RevealEnvironmentVariable(code, null, failure);
+        }
+        try
+        {
+            if (request is AgentRequest.ListEnvironment)
+            {
+                RequireFields(root, "code", "environment");
+                var data = root.GetProperty("environment");
+                RequireFields(data, "Service", "Scope", "Sources", "Variables", "CanReveal");
+                foreach (var source in data.GetProperty("Sources").EnumerateArray())
+                    RequireFields(source, "Id", "Kind", "IsOptional", "IsMissing");
+                foreach (var variable in data.GetProperty("Variables").EnumerateArray())
+                    RequireFields(variable, "Name", "WinningSourceId");
+                var environment = JsonSerializer.Deserialize<AgentEnvironment>(data) ?? throw new AgentProtocolException();
+                _ = new Serval.Domain.Services.SystemServiceId(environment.Service);
+                if (environment.Scope != EnvironmentModelScope.SupportedDeclarations ||
+                    environment.Sources is null || environment.Variables is null ||
+                    environment.Sources.Any(s => s is null) || environment.Variables.Any(v => v is null) ||
+                    environment.Sources.Select(s => s.Id).Distinct().Count() != environment.Sources.Count ||
+                    environment.Variables.Select(v => v.Name).Distinct(StringComparer.Ordinal).Count() != environment.Variables.Count ||
+                    environment.Variables.Any(v => !environment.Sources.Any(s => s.Id == v.WinningSourceId && !s.IsMissing)))
+                    throw new AgentProtocolException();
+                return new AgentResult.ListEnvironment(code, environment);
+            }
+            RequireFields(root, "code", "variable");
+            var item = root.GetProperty("variable");
+            RequireFields(item, "service", "name", "scope", "source", "value");
+            RequireFields(item.GetProperty("source"), "Id", "Kind", "IsOptional", "IsMissing");
+            if (item.GetProperty("scope").GetString() != "SupportedDeclarations" ||
+                item.GetProperty("name").GetString() != ((AgentRequest.RevealEnvironmentVariable)request).Name)
+                throw new AgentProtocolException();
+            var value = item.GetProperty("value").GetString() ?? throw new AgentProtocolException();
+            return new AgentResult.RevealEnvironmentVariable(code, new RevealedEnvironmentVariable(
+                item.GetProperty("service").GetString()!, item.GetProperty("name").GetString()!,
+                JsonSerializer.Deserialize<EnvironmentSourceMetadata>(item.GetProperty("source")) ?? throw new AgentProtocolException(),
+                value.AsSpan()));
+        }
+        catch (ArgumentException)
+        {
+            throw new AgentProtocolException();
+        }
+    }
 }
 
 public sealed class AgentProtocolException : Exception

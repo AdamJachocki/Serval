@@ -6,14 +6,15 @@ using Serval.Systemd;
 
 namespace Serval.Agent;
 
-/// <summary>Agent-side identity, policy, protection and audit gate for the seven operations.</summary>
+/// <summary>Agent-side identity, policy, protection and audit gate for typed operations.</summary>
 public sealed class AgentDispatcher(
     AgentConfiguration configuration,
     IAgentIdentityChecks identities,
     AgentSessions sessions,
     IAgentPolicyStore policy,
     ISystemServiceIdentityInventory inventory,
-    TimeProvider clock)
+    TimeProvider clock,
+    ISystemServiceEnvironmentReader? environmentReader = null)
 {
     public async Task<AgentResult> DispatchAsync(AgentRequest request, CancellationToken cancellationToken)
     {
@@ -24,7 +25,9 @@ public sealed class AgentDispatcher(
         }
 
         AgentPrincipal? verifiedActor = null;
+        string? verifiedService = null;
         void Remember(AgentPrincipal principal) => verifiedActor = principal;
+        void RememberService(string service) => verifiedService = service;
         try
         {
             var result = request switch
@@ -36,6 +39,8 @@ public sealed class AgentDispatcher(
                 AgentRequest.ListGrants grants => await ListGrantsAsync(grants, Remember, cancellationToken).ConfigureAwait(false),
                 AgentRequest.AddGrant add => await AddGrantAsync(add, Remember, cancellationToken).ConfigureAwait(false),
                 AgentRequest.RemoveGrant remove => await RemoveGrantAsync(remove, Remember, cancellationToken).ConfigureAwait(false),
+                AgentRequest.ListEnvironment list => await ReadEnvironmentAsync(list, list.Session, list.Service, null, Remember, RememberService, cancellationToken).ConfigureAwait(false),
+                AgentRequest.RevealEnvironmentVariable reveal => await ReadEnvironmentAsync(reveal, reveal.Session, reveal.Service, reveal.Name, Remember, RememberService, cancellationToken).ConfigureAwait(false),
                 _ => throw new AgentProtocolException(),
             };
             if (result.Code == AgentResultCode.Success)
@@ -57,6 +62,12 @@ public sealed class AgentDispatcher(
                     case AgentRequest.RemoveGrant remove:
                         sessions.RecordAcceptedActivity(remove.Session);
                         break;
+                    case AgentRequest.ListEnvironment list:
+                        sessions.RecordAcceptedActivity(list.Session);
+                        break;
+                    case AgentRequest.RevealEnvironmentVariable reveal:
+                        sessions.RecordAcceptedActivity(reveal.Session);
+                        break;
                 }
             }
 
@@ -64,6 +75,20 @@ public sealed class AgentDispatcher(
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            if (request is AgentRequest.ListEnvironment or AgentRequest.RevealEnvironmentVariable)
+            {
+                try
+                {
+                    policy.AppendAudit(Audit(verifiedActor,
+                        request is AgentRequest.ListEnvironment ? "ListEnvironment" : "RevealEnvironmentVariable",
+                        verifiedService, "Unavailable", request.CorrelationId) with
+                    {
+                        VariableName = request is AgentRequest.RevealEnvironmentVariable reveal &&
+                            ServiceOperations.IsValidVariableName(reveal.Name) ? reveal.Name : null,
+                    });
+                }
+                catch { /* Cancellation still publishes no data when audit is unavailable. */ }
+            }
             throw;
         }
         catch
@@ -79,11 +104,17 @@ public sealed class AgentDispatcher(
                     AgentRequest.ListGrants => "ListGrants",
                     AgentRequest.AddGrant => "AddGrant",
                     AgentRequest.RemoveGrant => "RemoveGrant",
+                    AgentRequest.ListEnvironment => "ListEnvironment",
+                    AgentRequest.RevealEnvironmentVariable => "RevealEnvironmentVariable",
                     _ => null,
                 };
                 if (operation is not null)
                 {
-                    policy.AppendAudit(Audit(verifiedActor, operation, null, "Unavailable", request.CorrelationId));
+                    policy.AppendAudit(Audit(verifiedActor, operation, verifiedService, "Unavailable", request.CorrelationId) with
+                    {
+                        VariableName = request is AgentRequest.RevealEnvironmentVariable reveal &&
+                            ServiceOperations.IsValidVariableName(reveal.Name) ? reveal.Name : null,
+                    });
                 }
             }
             catch
@@ -92,6 +123,82 @@ public sealed class AgentDispatcher(
             }
 
             return Failure(request, AgentResultCode.Unavailable);
+        }
+    }
+
+    private async Task<AgentResult> ReadEnvironmentAsync(AgentRequest request, string token, string service,
+        string? name, Action<AgentPrincipal> remember, Action<string> rememberService, CancellationToken cancellationToken)
+    {
+        var isReveal = request is AgentRequest.RevealEnvironmentVariable;
+        var operation = isReveal ? "RevealEnvironmentVariable" : "ListEnvironment";
+        var context = await AuthenticateAndResolveAsync(token, remember, cancellationToken).ConfigureAwait(false);
+        var actor = context?.Principal;
+        string? canonical = null;
+        AgentResult Finish(AgentResultCode code, string? failure = null)
+        {
+            policy.AppendAudit(Audit(actor, operation, canonical, code.ToString(), request.CorrelationId) with
+            {
+                VariableName = ServiceOperations.IsValidVariableName(name) ? name : null,
+            });
+            return isReveal ? new AgentResult.RevealEnvironmentVariable(code, null, failure)
+                : new AgentResult.ListEnvironment(code, null, failure);
+        }
+        if (context is null) return Finish(AgentResultCode.Unauthenticated);
+        if (!TryConcreteService(service, out var id) || isReveal && !ServiceOperations.IsValidVariableName(name))
+            return Finish(AgentResultCode.InvalidRequest);
+        if (SystemdProtectedServicePolicy.IsProtected(id!, [id!])) return Finish(AgentResultCode.NotFound);
+        var inspection = await inventory.InspectIdentityAsync(id!, cancellationToken).ConfigureAwait(false);
+        if (inspection is not ServiceIdentityInspectionResult.Found found) return Finish(AgentResultCode.NotFound);
+        canonical = found.Identity.Service.Id.Value;
+        rememberService(canonical);
+        if (SystemdProtectedServicePolicy.IsProtected(found.Identity.Service.Id, found.Identity.Names))
+            return Finish(AgentResultCode.NotFound);
+        bool Allowed(LinuxAccount account, IReadOnlyList<StoredGrant> grants) =>
+            CanPerform(ServiceOperations.EnvironmentView, canonical, account, grants) &&
+            (!isReveal || CanPerform(ServiceOperations.EnvironmentReveal, canonical, account, grants));
+        if (!Allowed(context.Value.Account, policy.ListGrants())) return Finish(AgentResultCode.Denied);
+        if (environmentReader is null) return Finish(AgentResultCode.Unavailable);
+        var read = await environmentReader.ReadAsync(found.Identity.Service.Id, cancellationToken).ConfigureAwait(false);
+        using var snapshot = read as ServiceEnvironmentReadResult.Success;
+        if (snapshot is null)
+        {
+            var failure = ((ServiceEnvironmentReadResult.Failure)read).Code;
+            return failure is EnvironmentReadFailureCode.NotFound or EnvironmentReadFailureCode.ProtectedTarget
+                ? Finish(AgentResultCode.NotFound) : Finish(AgentResultCode.Unavailable, failure.ToString());
+        }
+        if (snapshot.CanonicalServiceId != found.Identity.Service.Id) return Finish(AgentResultCode.Unavailable);
+        context = await AuthenticateAndResolveAsync(token, remember, cancellationToken).ConfigureAwait(false);
+        if (context is null) return Finish(AgentResultCode.Unauthenticated);
+        var finalIdentity = await inventory.InspectIdentityAsync(id!, cancellationToken).ConfigureAwait(false);
+        if (finalIdentity is not ServiceIdentityInspectionResult.Found current ||
+            current.Identity.Service.Id != found.Identity.Service.Id ||
+            SystemdProtectedServicePolicy.IsProtected(current.Identity.Service.Id, current.Identity.Names))
+            return Finish(AgentResultCode.NotFound);
+        var currentGrants = policy.ListGrants();
+        if (!Allowed(context.Value.Account, currentGrants)) return Finish(AgentResultCode.Denied);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!isReveal)
+        {
+            var metadata = new AgentEnvironment(canonical, snapshot.Scope, snapshot.Sources,
+                snapshot.Variables.OrderBy(variable => variable.Name, StringComparer.Ordinal).ToArray(),
+                CanPerform(ServiceOperations.EnvironmentReveal, canonical, context.Value.Account, currentGrants));
+            _ = Finish(AgentResultCode.Success);
+            return new AgentResult.ListEnvironment(AgentResultCode.Success, metadata);
+        }
+        var variable = snapshot.Variables.FirstOrDefault(variable => variable.Name == name);
+        if (variable is null) return Finish(AgentResultCode.NotFound);
+        var payload = new RevealedEnvironmentVariable(canonical, name!,
+            snapshot.Sources.Single(source => source.Id == variable.WinningSourceId), snapshot.Values.Reveal(name!));
+        try
+        {
+            _ = Finish(AgentResultCode.Success);
+            cancellationToken.ThrowIfCancellationRequested();
+            return new AgentResult.RevealEnvironmentVariable(AgentResultCode.Success, payload);
+        }
+        catch
+        {
+            payload.Dispose();
+            throw;
         }
     }
 
@@ -260,7 +367,7 @@ public sealed class AgentDispatcher(
                 AgentResultCode.Denied);
         }
 
-        if (request.Operation != "Service.View" ||
+        if (!ServiceOperations.IsSupported(request.Operation) ||
             request.SubjectKind is not ("User" or "Group") ||
             !TryConcreteService(request.Service, out var id) ||
             !ValidSubject(request.Subject))
@@ -304,7 +411,7 @@ public sealed class AgentDispatcher(
         }
 
         var grantId = policy.AddGrant(new StoredGrant(0, request.SubjectKind, request.Subject,
-            subjectId.Value, "Service.View", id!.Value),
+            subjectId.Value, request.Operation, id!.Value),
             Audit(context.Value.Principal, "AddGrant", id.Value, "Success", request.CorrelationId));
         return new AgentResult.AddGrant(AgentResultCode.Success, grantId);
     }
@@ -354,12 +461,15 @@ public sealed class AgentDispatcher(
     }
 
     private bool CanView(string service, LinuxAccount account, IReadOnlyList<StoredGrant> grants) =>
-        IsAdmin(account) || grants.Any(grant => grant.Operation == "Service.View" &&
+        CanPerform(ServiceOperations.View, service, account, grants);
+
+    private bool CanPerform(string operation, string service, LinuxAccount account, IReadOnlyList<StoredGrant> grants) =>
+        ServiceOperations.IsSupported(operation) && (IsAdmin(account) || grants.Any(grant => grant.Operation == operation &&
             string.Equals(grant.Service, service, StringComparison.Ordinal) &&
             (grant.SubjectKind == "User" && grant.SubjectName == account.Name &&
                 grant.SubjectId == account.Uid ||
              grant.SubjectKind == "Group" && account.Groups.Any(group =>
-                grant.SubjectName == group.Name && grant.SubjectId == group.Gid)));
+                grant.SubjectName == group.Name && grant.SubjectId == group.Gid))));
 
     private bool IsAdmin(LinuxAccount account) => account.Groups.Any(group =>
         group.Name == configuration.AdminGroup && group.Gid == configuration.AdminGid);
@@ -420,6 +530,8 @@ public sealed class AgentDispatcher(
         AgentRequest.ListGrants => new AgentResult.ListGrants(code, null),
         AgentRequest.AddGrant => new AgentResult.AddGrant(code, null),
         AgentRequest.RemoveGrant => new AgentResult.RemoveGrant(code),
+        AgentRequest.ListEnvironment => new AgentResult.ListEnvironment(code, null),
+        AgentRequest.RevealEnvironmentVariable => new AgentResult.RevealEnvironmentVariable(code, null),
         _ => throw new AgentProtocolException(),
     };
 }

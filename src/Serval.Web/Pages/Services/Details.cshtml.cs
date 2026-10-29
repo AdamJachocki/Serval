@@ -6,6 +6,51 @@ namespace Serval.Web.Pages.Services;
 
 public sealed class DetailsModel(IAgentIpcClient agent) : PageModel
 {
+    public async Task<IActionResult> OnGetEnvironmentAsync(string service, CancellationToken cancellationToken)
+    {
+        Response.Headers.CacheControl = "no-store";
+        var session = ServalSessionCookie.Read(Request);
+        if (session is null) return Unauthorized();
+        var result = (AgentResult.ListEnvironment)await agent.SendAsync(
+            new AgentRequest.ListEnvironment(Guid.NewGuid().ToString("N"), session, service), cancellationToken);
+        if (result.Code == AgentResultCode.Success && result.Environment is not null)
+            return new JsonResult(result.Environment);
+        return EnvironmentFailure(result.Code, result.Failure);
+    }
+
+    public async Task<IActionResult> OnPostRevealAsync(string service, string name, CancellationToken cancellationToken)
+    {
+        Response.Headers.CacheControl = "no-store";
+        var session = ServalSessionCookie.Read(Request);
+        if (session is null) return Unauthorized();
+        using var result = (AgentResult.RevealEnvironmentVariable)await agent.SendAsync(
+            new AgentRequest.RevealEnvironmentVariable(Guid.NewGuid().ToString("N"), session, service, name), cancellationToken);
+        if (result.Code != AgentResultCode.Success || result.Variable is null)
+            return EnvironmentFailure(result.Code, result.Failure);
+        Response.ContentType = "application/json; charset=utf-8";
+        await result.Variable.WriteHttpAsync(Response.Body, cancellationToken);
+        return new EmptyResult();
+    }
+
+    private IActionResult EnvironmentFailure(AgentResultCode code, string? failure)
+    {
+        if (code == AgentResultCode.Unauthenticated)
+        {
+            ServalSessionCookie.Clear(Response);
+            return Unauthorized();
+        }
+        if (code is AgentResultCode.NotFound or AgentResultCode.Denied or AgentResultCode.InvalidRequest)
+            return NotFound();
+        var message = failure switch
+        {
+            "UnsupportedConfiguration" => "Ta konfiguracja nie jest obsługiwana.",
+            "InconsistentSnapshot" => "Konfiguracja zmieniła się podczas odczytu. Spróbuj ponownie.",
+            "LimitExceeded" => "Przekroczono limit rozmiaru odczytu.",
+            _ => "Środowisko jest chwilowo niedostępne.",
+        };
+        return new JsonResult(new { error = message }) { StatusCode = 503 };
+    }
+
     public AgentService? Service { get; private set; }
 
     public string? Error { get; private set; }

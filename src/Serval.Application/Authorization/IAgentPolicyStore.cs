@@ -6,7 +6,7 @@ public sealed record StoredGrant(
 
 public sealed record AuditEntry(
     string? ActorName, uint? ActorUid, string Operation, string? Service,
-    string Outcome, string CorrelationId, DateTimeOffset Timestamp);
+    string Outcome, string CorrelationId, DateTimeOffset Timestamp, string? VariableName = null);
 
 /// <summary>Agent-facing grant and audit operations; persistence details stay in Infrastructure.</summary>
 public interface IAgentPolicyStore

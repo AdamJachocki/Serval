@@ -18,6 +18,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Serval.EnvironmentOracle\Serval.EnvironmentOracle.csproj" />
     <ProjectReference Include="..\..\src\Serval.Systemd\Serval.Systemd.csproj" />
+    <ProjectReference Include="..\..\src\Serval.Agent\Serval.Agent.csproj" />
   </ItemGroup>
 
   <Target Name="PublishEnvironmentOracle" AfterTargets="Publish" Condition="'$(RuntimeIdentifier)' != ''">

@@ -11,6 +11,205 @@ namespace Serval.Agent.Tests;
 
 public sealed class AgentDispatcherTests
 {
+    [Theory]
+    [InlineData(EnvironmentReadFailureCode.NotFound)]
+    [InlineData(EnvironmentReadFailureCode.ProtectedTarget)]
+    public async Task TargetDisappearanceDuringAcquisitionRemainsIndistinguishable(EnvironmentReadFailureCode failure)
+    {
+        using var fixture = new Fixture();
+        fixture.Inventory.Services = [Service("worker.service")];
+        fixture.Identities.Accounts["admin"] = Account("admin", 1001, new LinuxGroup("sudo", 27));
+        var session = await fixture.LoginAsync("admin");
+        fixture.Environment.Failure = failure;
+        using var result = Assert.IsType<AgentResult.RevealEnvironmentVariable>(await fixture.Dispatcher.DispatchAsync(
+            new AgentRequest.RevealEnvironmentVariable("target-race", session, "worker.service", "CONFIG"), TestContext.Current.CancellationToken));
+        Assert.Equal(AgentResultCode.NotFound, result.Code);
+        Assert.Null(result.Variable);
+        Assert.Null(result.Failure);
+    }
+
+    [Fact]
+    public async Task UnexpectedReaderFailureRetainsKnownAuditIdentityAndCanonicalService()
+    {
+        using var fixture = new Fixture();
+        fixture.Inventory.Services = [Service("worker.service", "alias.service")];
+        fixture.Identities.Accounts["admin"] = Account("admin", 1001, new LinuxGroup("sudo", 27));
+        var session = await fixture.LoginAsync("admin");
+        fixture.Environment.DuringRead = () => throw new InvalidOperationException("Synthetic read failure.");
+        using var result = Assert.IsType<AgentResult.RevealEnvironmentVariable>(await fixture.Dispatcher.DispatchAsync(
+            new AgentRequest.RevealEnvironmentVariable("reader-error", session, "alias.service", "CONFIG"), TestContext.Current.CancellationToken));
+        Assert.Equal(AgentResultCode.Unavailable, result.Code);
+        Assert.Equal(("admin", 1001L), fixture.AuditActor("reader-error"));
+        using var connection = new SqliteConnection($"Data Source={fixture.DatabasePath};Pooling=False");
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT service FROM audit WHERE correlation_id='reader-error'";
+        Assert.Equal("worker.service", command.ExecuteScalar());
+    }
+
+    [Theory]
+    [InlineData("Environment.View")]
+    [InlineData("Environment.Reveal")]
+    public async Task EnvironmentGrantsCanBeRemovedOnlyByCurrentAdministrator(string operation)
+    {
+        using var fixture = new Fixture();
+        fixture.Inventory.Services = [Service("worker.service")];
+        fixture.Identities.Accounts["admin"] = Account("admin", 1001, new LinuxGroup("sudo", 27));
+        fixture.Identities.Accounts["alice"] = Account("alice", 1002);
+        var admin = await fixture.LoginAsync("admin");
+        var alice = await fixture.LoginAsync("alice");
+        var added = Assert.IsType<AgentResult.AddGrant>(await fixture.Dispatcher.DispatchAsync(
+            new AgentRequest.AddGrant("add-env", admin, "User", "alice", operation, "worker.service"), TestContext.Current.CancellationToken));
+        Assert.Equal(operation, Assert.Single(fixture.Policy.ListGrants()).Operation);
+        var denied = await fixture.Dispatcher.DispatchAsync(new AgentRequest.RemoveGrant("deny-env", alice, added.GrantId!.Value), TestContext.Current.CancellationToken);
+        Assert.Equal(AgentResultCode.Denied, denied.Code);
+        Assert.Single(fixture.Policy.ListGrants());
+        var removed = await fixture.Dispatcher.DispatchAsync(new AgentRequest.RemoveGrant("remove-env", admin, added.GrantId.Value), TestContext.Current.CancellationToken);
+        Assert.Equal(AgentResultCode.Success, removed.Code);
+        Assert.Empty(fixture.Policy.ListGrants());
+    }
+
+    [Fact]
+    public async Task EnvironmentReadsFreshValuesAndSourcesAndDistinguishesEmptyFromMissing()
+    {
+        using var fixture = new Fixture();
+        fixture.Inventory.Services = [Service("worker.service")];
+        fixture.Identities.Accounts["admin"] = Account("admin", 1001, new LinuxGroup("sudo", 27));
+        var session = await fixture.LoginAsync("admin");
+        var listed = Assert.IsType<AgentResult.ListEnvironment>(await fixture.Dispatcher.DispatchAsync(
+            new AgentRequest.ListEnvironment("metadata", session, "worker.service"), TestContext.Current.CancellationToken));
+        Assert.True(listed.Environment!.CanReveal);
+        Assert.Equal(0, Assert.Single(listed.Environment.Variables).WinningSourceId);
+        fixture.Environment.Source = 1;
+        fixture.Environment.Value = "";
+        using var revealed = Assert.IsType<AgentResult.RevealEnvironmentVariable>(await fixture.Dispatcher.DispatchAsync(
+            new AgentRequest.RevealEnvironmentVariable("empty", session, "worker.service", "CONFIG"), TestContext.Current.CancellationToken));
+        Assert.Equal(AgentResultCode.Success, revealed.Code);
+        Assert.Equal(1, revealed.Variable!.Source.Id);
+        using var http = new MemoryStream();
+        await revealed.Variable.WriteHttpAsync(http, TestContext.Current.CancellationToken);
+        using var json = System.Text.Json.JsonDocument.Parse(http.ToArray());
+        Assert.True(json.RootElement.GetProperty("value").GetString() == "");
+        using var absent = Assert.IsType<AgentResult.RevealEnvironmentVariable>(await fixture.Dispatcher.DispatchAsync(
+            new AgentRequest.RevealEnvironmentVariable("missing", session, "worker.service", "ABSENT"), TestContext.Current.CancellationToken));
+        Assert.Equal(AgentResultCode.NotFound, absent.Code);
+        Assert.Null(absent.Variable);
+        fixture.Environment.Empty = true;
+        var empty = Assert.IsType<AgentResult.ListEnvironment>(await fixture.Dispatcher.DispatchAsync(
+            new AgentRequest.ListEnvironment("empty-metadata", session, "worker.service"), TestContext.Current.CancellationToken));
+        Assert.Equal(AgentResultCode.Success, empty.Code);
+        Assert.Empty(empty.Environment!.Variables);
+        Assert.Equal(4, fixture.Environment.Calls);
+    }
+
+    [Theory]
+    [InlineData(EnvironmentReadFailureCode.Timeout)]
+    [InlineData(EnvironmentReadFailureCode.InconsistentSnapshot)]
+    [InlineData(EnvironmentReadFailureCode.UnsupportedConfiguration)]
+    public async Task FailedEnvironmentReadsPublishNoPartialData(EnvironmentReadFailureCode failure)
+    {
+        using var fixture = new Fixture();
+        fixture.Inventory.Services = [Service("worker.service")];
+        fixture.Identities.Accounts["admin"] = Account("admin", 1001, new LinuxGroup("sudo", 27));
+        var session = await fixture.LoginAsync("admin");
+        fixture.Environment.Failure = failure;
+        var listed = Assert.IsType<AgentResult.ListEnvironment>(await fixture.Dispatcher.DispatchAsync(
+            new AgentRequest.ListEnvironment("failed-list", session, "worker.service"), TestContext.Current.CancellationToken));
+        Assert.Null(listed.Environment);
+        Assert.Equal(failure.ToString(), listed.Failure);
+        using var revealed = Assert.IsType<AgentResult.RevealEnvironmentVariable>(await fixture.Dispatcher.DispatchAsync(
+            new AgentRequest.RevealEnvironmentVariable("failed-reveal", session, "worker.service", "CONFIG"), TestContext.Current.CancellationToken));
+        Assert.Null(revealed.Variable);
+        Assert.Equal(AgentResultCode.Unavailable, revealed.Code);
+        Assert.Equal("Unavailable", fixture.AuditOutcome("failed-reveal"));
+    }
+
+    [Theory]
+    [InlineData("User", "Service.View", false, false)]
+    [InlineData("User", "Environment.View", true, false)]
+    [InlineData("User", "Environment.Reveal", false, false)]
+    [InlineData("Group", "Environment.View", true, false)]
+    [InlineData("Group", "Both", true, true)]
+    [InlineData("User", "Both", true, true)]
+    public async Task EnvironmentPermissionsAreIndependent(string kind, string operation, bool listAllowed, bool revealAllowed)
+    {
+        using var fixture = new Fixture();
+        fixture.Inventory.Services = [Service("worker.service", "alias.service")];
+        fixture.Identities.Accounts["admin"] = Account("admin", 1001, new LinuxGroup("sudo", 27));
+        fixture.Identities.Accounts["alice"] = Account("alice", 1002, new LinuxGroup("operators", 500));
+        fixture.Identities.Groups["operators"] = new LinuxGroup("operators", 500);
+        var admin = await fixture.LoginAsync("admin");
+        var alice = await fixture.LoginAsync("alice");
+        var operations = operation == "Both" ? new[] { "Environment.View", "Environment.Reveal" } : [operation];
+        foreach (var permission in operations)
+        {
+            var granted = await fixture.Dispatcher.DispatchAsync(new AgentRequest.AddGrant("env-grant", admin,
+                kind, kind == "User" ? "alice" : "operators", permission, "worker.service"), TestContext.Current.CancellationToken);
+            Assert.Equal(AgentResultCode.Success, granted.Code);
+        }
+        var listed = Assert.IsType<AgentResult.ListEnvironment>(await fixture.Dispatcher.DispatchAsync(
+            new AgentRequest.ListEnvironment("env-list", alice, "alias.service"), TestContext.Current.CancellationToken));
+        Assert.Equal(listAllowed ? AgentResultCode.Success : AgentResultCode.Denied, listed.Code);
+        Assert.Equal(listAllowed ? 1 : 0, fixture.Environment.Calls);
+        using var revealed = Assert.IsType<AgentResult.RevealEnvironmentVariable>(await fixture.Dispatcher.DispatchAsync(
+            new AgentRequest.RevealEnvironmentVariable("env-reveal", alice, "alias.service", "CONFIG"), TestContext.Current.CancellationToken));
+        Assert.Equal(revealAllowed ? AgentResultCode.Success : AgentResultCode.Denied, revealed.Code);
+        Assert.Equal((listAllowed ? 1 : 0) + (revealAllowed ? 1 : 0), fixture.Environment.Calls);
+        if (kind == "Group")
+        {
+            fixture.Identities.Accounts["alice"] = Account("alice", 1002);
+            var denied = await fixture.Dispatcher.DispatchAsync(new AgentRequest.ListEnvironment("removed", alice, "worker.service"), TestContext.Current.CancellationToken);
+            Assert.Equal(AgentResultCode.Denied, denied.Code);
+        }
+    }
+
+    [Theory]
+    [InlineData("../worker.service", "CONFIG", AgentResultCode.InvalidRequest)]
+    [InlineData("worker@.service", "CONFIG", AgentResultCode.InvalidRequest)]
+    [InlineData("worker.service", "../CONFIG", AgentResultCode.InvalidRequest)]
+    [InlineData("ssh.service", "CONFIG", AgentResultCode.NotFound)]
+    [InlineData("hidden.service", "CONFIG", AgentResultCode.NotFound)]
+    [InlineData("absent.service", "CONFIG", AgentResultCode.NotFound)]
+    public async Task EnvironmentRejectsUnsafeTargetsBeforeAcquisition(string service, string name, AgentResultCode expected)
+    {
+        using var fixture = new Fixture();
+        fixture.Inventory.Services = [Service("worker.service"), Service("hidden.service", "ssh.service")];
+        fixture.Identities.Accounts["admin"] = Account("admin", 1001, new LinuxGroup("sudo", 27));
+        var admin = await fixture.LoginAsync("admin");
+        using var result = Assert.IsType<AgentResult.RevealEnvironmentVariable>(await fixture.Dispatcher.DispatchAsync(
+            new AgentRequest.RevealEnvironmentVariable("unsafe", admin, service, name), TestContext.Current.CancellationToken));
+        Assert.Equal(expected, result.Code);
+        Assert.Null(result.Variable);
+        Assert.Equal(0, fixture.Environment.Calls);
+    }
+
+    [Theory]
+    [InlineData("membership", AgentResultCode.Denied)]
+    [InlineData("identity", AgentResultCode.Unauthenticated)]
+    [InlineData("protection", AgentResultCode.NotFound)]
+    [InlineData("mismatch", AgentResultCode.Unavailable)]
+    [InlineData("audit", AgentResultCode.Unavailable)]
+    public async Task EnvironmentRechecksBeforePublishing(string change, AgentResultCode expected)
+    {
+        using var fixture = new Fixture();
+        fixture.Inventory.Services = [Service("worker.service")];
+        fixture.Identities.Accounts["admin"] = Account("admin", 1001, new LinuxGroup("sudo", 27));
+        var session = await fixture.LoginAsync("admin");
+        fixture.Environment.DuringRead = () =>
+        {
+            if (change == "membership") fixture.Identities.Accounts["admin"] = Account("admin", 1001);
+            if (change == "identity") fixture.Identities.Accounts.Remove("admin");
+            if (change == "protection") fixture.Inventory.Services = [Service("worker.service", "ssh.service")];
+            if (change == "mismatch") fixture.Environment.Canonical = "different.service";
+            if (change == "audit") fixture.PolicyFacade.ThrowOnAudit = true;
+        };
+        using var result = Assert.IsType<AgentResult.RevealEnvironmentVariable>(await fixture.Dispatcher.DispatchAsync(
+            new AgentRequest.RevealEnvironmentVariable("recheck", session, "worker.service", "CONFIG"), TestContext.Current.CancellationToken));
+        Assert.Equal(expected, result.Code);
+        Assert.Null(result.Variable);
+        Assert.Equal(1, fixture.Environment.Calls);
+    }
+
     [Fact]
     public async Task ListFiltersProtectedAndUngrantableServicesBeforePublication()
     {
@@ -419,7 +618,7 @@ public sealed class AgentDispatcherTests
             var clock = timeProvider ?? TimeProvider.System;
             var sessions = new AgentSessions(TimeSpan.FromMinutes(15), Identities, clock);
             Dispatcher = new AgentDispatcher(new AgentConfiguration(2000, 2000, "sudo", 27,
-                TimeSpan.FromMinutes(15)), Identities, sessions, PolicyFacade, Inventory, clock);
+                TimeSpan.FromMinutes(15)), Identities, sessions, PolicyFacade, Inventory, clock, Environment);
         }
 
         public string DatabasePath { get; }
@@ -433,6 +632,8 @@ public sealed class AgentDispatcherTests
         public FakeInventory Inventory { get; }
 
         public AgentDispatcher Dispatcher { get; }
+
+        public FakeEnvironment Environment { get; } = new();
 
         public string? AuditOutcome(string correlation)
         {
@@ -480,6 +681,8 @@ public sealed class AgentDispatcherTests
     {
         public bool ThrowOnList { get; set; }
 
+        public bool ThrowOnAudit { get; set; }
+
         public IReadOnlyList<StoredGrant> ListGrants() =>
             ThrowOnList ? throw new InvalidOperationException("Synthetic policy read failure") : inner.ListGrants();
 
@@ -487,7 +690,36 @@ public sealed class AgentDispatcherTests
 
         public bool RemoveGrant(long id, AuditEntry audit) => inner.RemoveGrant(id, audit);
 
-        public void AppendAudit(AuditEntry audit) => inner.AppendAudit(audit);
+        public void AppendAudit(AuditEntry audit)
+        {
+            if (ThrowOnAudit) throw new InvalidOperationException("Audit unavailable.");
+            inner.AppendAudit(audit);
+        }
+    }
+
+    private sealed class FakeEnvironment : ISystemServiceEnvironmentReader
+    {
+        public int Calls { get; private set; }
+        public Action? DuringRead { get; set; }
+        public string Canonical { get; set; } = "worker.service";
+        public string Value { get; set; } = Guid.NewGuid().ToString("N");
+        public int Source { get; set; }
+        public bool Empty { get; set; }
+        public EnvironmentReadFailureCode? Failure { get; set; }
+
+        public Task<ServiceEnvironmentReadResult> ReadAsync(SystemServiceId serviceId, CancellationToken cancellationToken)
+        {
+            Calls++;
+            DuringRead?.Invoke();
+            if (Failure is { } failure)
+                return Task.FromResult<ServiceEnvironmentReadResult>(new ServiceEnvironmentReadResult.Failure(failure,
+                    failure == EnvironmentReadFailureCode.UnsupportedConfiguration ? EnvironmentUnsupportedReason.UnsetEnvironment : null));
+            ServiceEnvironmentReadResult result = new ServiceEnvironmentReadResult.Success(new SystemServiceId(Canonical),
+                [new EnvironmentSourceMetadata(Source, Source == 0 ? EnvironmentSourceKind.ManagerEnvironment : EnvironmentSourceKind.EnvironmentFile)],
+                Empty ? [] : [new EnvironmentVariableMetadata("CONFIG", Source)],
+                new EnvironmentValues(Empty ? [] : new Dictionary<string, string> { ["CONFIG"] = Value }));
+            return Task.FromResult(result);
+        }
     }
 
     private sealed class ManualTimeProvider : TimeProvider

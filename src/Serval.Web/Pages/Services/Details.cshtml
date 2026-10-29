@@ -18,4 +18,13 @@ else if (Model.Service is not null)
         <dt class="col-sm-3">Active</dt><dd class="col-sm-9">@Model.Service.ActiveState</dd>
         <dt class="col-sm-3">Sub-state</dt><dd class="col-sm-9">@Model.Service.SubState</dd>
     </dl>
+    <section id="service-environment" data-service="@Model.Service.Id" aria-labelledby="environment-title">
+        <h2 id="environment-title">Środowisko usługi</h2>
+        <p>Obsługiwane deklaracje konfiguracji — nie środowisko uruchomionego procesu.</p>
+        <form id="environment-token" method="post">@Html.AntiForgeryToken()</form>
+        <p id="environment-status" role="status">Wczytywanie środowiska…</p>
+        <button id="environment-retry" type="button" class="btn btn-outline-secondary" hidden>Spróbuj ponownie</button>
+        <div id="environment-rows"></div>
+    </section>
+    <script src="~/js/service-environment.js" asp-append-version="true" defer></script>
 }

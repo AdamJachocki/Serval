@@ -38,7 +38,7 @@ try
 
     var sessions = new AgentSessions(configuration.IdleTimeout, identities, TimeProvider.System);
     var dispatcher = new AgentDispatcher(configuration, identities, sessions,
-        policy, new SystemdServiceInventory(), TimeProvider.System);
+        policy, new SystemdServiceInventory(), TimeProvider.System, new SystemdServiceEnvironmentReader());
     var socket = new AgentSocketServer(configuration, dispatcher.DispatchAsync);
     await socket.RunAsync(shutdown.Token);
     return 0;
