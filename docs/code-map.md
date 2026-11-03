@@ -15,6 +15,7 @@ Serval/
 ├── src/                     Production projects
 ├── tests/                   Automated tests
 ├── docs/                    Technical and design documentation
+├── openspec/                Specifications and change artifacts
 ├── .agents/                 Agent skills and workflows
 ├── .github/                 CI and GitHub configuration
 ├── Serval.slnx              Solution definition
@@ -325,6 +326,17 @@ Current documents cover areas including:
 
 Consult the relevant document before changing an established technical strategy.
 
+### `openspec/specs/`
+
+Accepted behavioral specifications for the current system.
+
+Use these when determining what behavior the implementation is expected to provide.
+
+### `openspec/changes/`
+
+Proposed, active, and archived OpenSpec changes.
+
+When implementing an active OpenSpec change, its proposal, specs, design, and tasks define the change-specific implementation context.
 
 ## Agent infrastructure
 
@@ -339,6 +351,8 @@ serval-change-workflow/
 serval-systemd/
 serval-privileged-operation/
 ```
+
+OpenSpec also installs its workflow skills here.
 
 Load a skill only when the current task matches its trigger as defined in `AGENTS.md`.
 

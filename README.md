@@ -109,6 +109,8 @@ a versioned installer or supported release.
   reporting.
 - [docs/code-map.md](docs/code-map.md) maps the current implementation.
 - [docs](docs) contains long-lived technical and deployment decisions.
+- [openspec/specs](openspec/specs) contains the accepted behavioral contracts.
+- [openspec/changes](openspec/changes) contains active and archived changes.
 
 ## Contributing
 
