@@ -165,5 +165,3 @@ Changes to externally observable or contractually significant system behavior be
 * [`CONTRIBUTING.md`](CONTRIBUTING.md) — development workflow and quality requirements.
 * [`docs/code-map.md`](docs/code-map.md) — current implementation map.
 * [`docs/`](docs/) — Long-lived technical and architectural decisions..
-* [`openspec/specs/`](openspec/specs/) — accepted system behavior.
-* [`openspec/changes/`](openspec/changes/) — proposed and in-progress changes.

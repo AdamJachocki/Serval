@@ -18,16 +18,6 @@ Before making changes, read the documentation relevant to the task.
 - `docs/`
   Long-lived technical and architectural decisions.
 
-- `openspec/specs/`
-  Current accepted product/system behavior.
-
-- `openspec/changes/`
-  Proposed and in-progress changes.
-
-## OpenSpec
-
-Use OpenSpec for non-trivial behavioral, architectural or security changes.
-Treat accepted OpenSpec artifacts as the implementation contract.
 
 ## Project skills
 
@@ -35,9 +25,8 @@ Load a skill only when the current task matches its trigger.
 
 - Repository changes:
   load `.agents/skills/serval-change-workflow/SKILL.md`
-  for every task that may change repository files and whenever any OpenSpec
-  skill is invoked, including exploratory and planning workflows. The skill
-  covers numbered GitHub issues, OpenSpec changes without issues, and changes
+  for every task that may change repository files including exploratory and planning workflows. The skill
+  covers numbered GitHub issues, and changes
   described directly by the user.
 
 - systemd:

@@ -5,7 +5,7 @@ Thank you for helping build Serval. Contributions are expected to meet productio
 ## Before you start
 
 1. Read [`AGENTS.md`](AGENTS.md) in full.
-2. Establish the task scope from the relevant issue, OpenSpec change, or direct
+2. Establish the task scope from the relevant issue, or direct
    user request.
 3. Load and follow skills required by task before working especially across a sensitive boundary.
 4. Report vulnerabilities privately according to [`SECURITY.md`](SECURITY.md); do not disclose them in a public issue.
