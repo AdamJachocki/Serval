@@ -17,7 +17,7 @@
 - [x] 3.2 Implement `AddFavorite` per D3. Verify with dispatcher tests for: permitted canonical and alias adds (canonical stored), identical `NotFound` for unauthorized, protected, alias-to-protected and nonexistent targets with nothing stored, `InvalidRequest` for malformed or template names, `Unauthenticated` for bad sessions, `LimitReached`, and audit content.
 - [x] 3.3 Implement `RemoveFavorite` per D4. Verify with dispatcher tests showing identical `Success` for existing, absent, protected, unauthorized and nonexistent services, no effect on another user's rows, `InvalidRequest` and `Unauthenticated` paths, and an audit service that is null when the name does not resolve to a visible service.
 - [x] 3.4 Register both operations in the dispatcher's activity recording and the `Unavailable` audit fallback. Verify with a test that a store exception yields `Unavailable` and an audit attempt for each new operation.
-- [ ] 3.5 Add a real-systemd Agent authorization case (alongside `RealSystemdAgentAuthorizationTests`) showing that add and remove leave systemd state and environment unread and unchanged, and that a protected unit's alias is rejected. Verify that it passes in the Linux integration run.
+- [x] 3.5 Add a real-systemd Agent authorization case (alongside `RealSystemdAgentAuthorizationTests`) showing that add and remove leave systemd state and environment unread and unchanged, and that a protected unit's alias is rejected. Verify that it passes in the Linux integration run.
 
 ## 4. Web inventory (Services/Index)
 
@@ -33,8 +33,8 @@
 
 ## 6. Integration and review
 
-- [ ] 6.1 Run the formatting, build, full unit test, Web browser test and real-systemd integration suites from `CONTRIBUTING.md`, and record each gate as passed, failed or unverified.
-- [ ] 6.2 Complete `.agents/workflows/post-change-review.md` until the fresh independent reviewer returns `VERDICT: APPROVED`.
+- [x] 6.1 Run the formatting, build, full unit test, Web browser test and real-systemd integration suites from `CONTRIBUTING.md`, and record each gate as passed, failed or unverified.
+- [x] 6.2 Complete `.agents/workflows/post-change-review.md` until the fresh independent reviewer returns `VERDICT: APPROVED`.
 
 ## Workflow follow-up
 
