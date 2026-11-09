@@ -19,8 +19,14 @@ internal sealed class TestAgentClient : IAgentIpcClient
         IReadOnlyList<AgentService>? services = null,
         IReadOnlyList<AgentGrant>? grants = null,
         AgentResult.Login? loginResult = null,
-        Func<AgentRequest, CancellationToken, Task<AgentResult>>? handler = null)
+        Func<AgentRequest, CancellationToken, Task<AgentResult>>? handler = null,
+        IEnumerable<string>? favorites = null)
     {
+        foreach (var favorite in favorites ?? [])
+        {
+            FavoriteIds.Add(favorite);
+        }
+
         Services = services ??
         [
             new("nginx.service", "Serwer WWW", "loaded", "active", "running"),
@@ -35,6 +41,8 @@ internal sealed class TestAgentClient : IAgentIpcClient
     public ConcurrentQueue<AgentRequest> Requests { get; } = new();
 
     public IReadOnlyList<AgentService> Services { get; }
+
+    public HashSet<string> FavoriteIds { get; } = new(StringComparer.Ordinal);
 
     public IReadOnlyList<AgentGrant> Grants { get; }
 
@@ -52,7 +60,10 @@ internal sealed class TestAgentClient : IAgentIpcClient
         {
             AgentRequest.Login => LoginResult,
             AgentRequest.Logout => new AgentResult.Logout(AgentResultCode.Success),
-            AgentRequest.ListServices => new AgentResult.ListServices(AgentResultCode.Success, Services),
+            AgentRequest.ListServices => new AgentResult.ListServices(AgentResultCode.Success, Services,
+                Services.Where(service => FavoriteIds.Contains(service.Id)).Select(service => service.Id).ToArray()),
+            AgentRequest.AddFavorite add => AddFavorite(add),
+            AgentRequest.RemoveFavorite remove => RemoveFavorite(remove),
             AgentRequest.InspectService inspection => new AgentResult.InspectService(
                 Services.FirstOrDefault(service => string.Equals(service.Id, inspection.Service, StringComparison.Ordinal)) is { } service
                     ? AgentResultCode.Success
@@ -69,6 +80,23 @@ internal sealed class TestAgentClient : IAgentIpcClient
                 AgentResultCode.Denied, null),
             _ => throw new InvalidOperationException($"Unexpected request type {request.GetType().Name}.")
         };
+    }
+
+    private AgentResult.AddFavorite AddFavorite(AgentRequest.AddFavorite request)
+    {
+        if (!Services.Any(service => string.Equals(service.Id, request.Service, StringComparison.Ordinal)))
+        {
+            return new AgentResult.AddFavorite(AgentResultCode.NotFound);
+        }
+
+        FavoriteIds.Add(request.Service);
+        return new AgentResult.AddFavorite(AgentResultCode.Success);
+    }
+
+    private AgentResult.RemoveFavorite RemoveFavorite(AgentRequest.RemoveFavorite request)
+    {
+        FavoriteIds.Remove(request.Service);
+        return new AgentResult.RemoveFavorite(AgentResultCode.Success);
     }
 }
 

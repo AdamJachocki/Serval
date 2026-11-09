@@ -30,6 +30,12 @@ public abstract record AgentRequest(string CorrelationId)
 
     public sealed record RemoveGrant(string CorrelationId, string Session, long GrantId)
         : AgentRequest(CorrelationId);
+
+    public sealed record AddFavorite(string CorrelationId, string Session, string Service)
+        : AgentRequest(CorrelationId);
+
+    public sealed record RemoveFavorite(string CorrelationId, string Session, string Service)
+        : AgentRequest(CorrelationId);
 }
 
 public enum AgentResultCode
@@ -40,6 +46,7 @@ public enum AgentResultCode
     Denied,
     NotFound,
     Unavailable,
+    LimitReached,
 }
 
 public sealed record AgentService(
@@ -55,8 +62,8 @@ public abstract record AgentResult(AgentResultCode Code)
 
     public sealed record Logout(AgentResultCode Code) : AgentResult(Code);
 
-    public sealed record ListServices(AgentResultCode Code, IReadOnlyList<AgentService>? Services)
-        : AgentResult(Code);
+    public sealed record ListServices(AgentResultCode Code, IReadOnlyList<AgentService>? Services,
+        IReadOnlyList<string>? Favorites = null) : AgentResult(Code);
 
     public sealed record InspectService(AgentResultCode Code, AgentService? Service)
         : AgentResult(Code);
@@ -67,6 +74,10 @@ public abstract record AgentResult(AgentResultCode Code)
     public sealed record AddGrant(AgentResultCode Code, long? GrantId) : AgentResult(Code);
 
     public sealed record RemoveGrant(AgentResultCode Code) : AgentResult(Code);
+
+    public sealed record AddFavorite(AgentResultCode Code) : AgentResult(Code);
+
+    public sealed record RemoveFavorite(AgentResultCode Code) : AgentResult(Code);
 
     public sealed record ListEnvironment(AgentResultCode Code, AgentEnvironment? Environment,
         string? Failure = null) : AgentResult(Code);

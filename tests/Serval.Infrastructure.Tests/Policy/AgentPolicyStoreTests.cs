@@ -42,6 +42,7 @@ public sealed class AgentPolicyStoreTests
             using (var command = connection.CreateCommand())
             {
                 command.CommandText = """
+                    DROP TABLE favorites;
                     DROP TABLE grants;
                     DROP TABLE audit;
                     CREATE TABLE grants (
@@ -76,7 +77,7 @@ public sealed class AgentPolicyStoreTests
             using var verify = Open(path);
             using var query = verify.CreateCommand();
             query.CommandText = "PRAGMA user_version";
-            Assert.Equal(injectFailure ? 1L : 2L, query.ExecuteScalar());
+            Assert.Equal(injectFailure ? 1L : 3L, query.ExecuteScalar());
             query.CommandText = "SELECT COUNT(*) FROM audit WHERE id=71 AND correlation_id='old'";
             Assert.Equal(1L, query.ExecuteScalar());
             if (injectFailure)

@@ -33,7 +33,7 @@ The authoritative development invariants are maintained in [`AGENTS.md`](AGENTS.
 
 `Serval.Web` runs under the dedicated unprivileged `serval-web` account. Only
 `Serval.Agent` runs as root. Its local Unix socket checks the connecting
-process's kernel UID. Every privileged request is parsed as one of nine typed
+process's kernel UID. Every privileged request is parsed as one of eleven typed
 operations and checked again by the Agent; Web-supplied identity, role or
 service authorization is never authority. The Agent does not expose command
 execution, arbitrary filesystem access, bulk environment disclosure, or service

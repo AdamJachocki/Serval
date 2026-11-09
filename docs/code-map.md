@@ -32,7 +32,12 @@ codecs), `Agent/AgentDispatcher.cs` (authorization and audit), and
 `Web/Pages/Services/Details.cshtml.cs` with `wwwroot/js/service-environment.js`
 (independent metadata loading and reveal/hide state). `Authorization/ServiceOperations.cs`
 defines the operation allowlist and bounded disclosure-name grammar.
-`Infrastructure/Policy/AgentPolicyStore.cs` owns the transactional schema-2 migration.
+`Infrastructure/Policy/AgentPolicyStore.cs` owns the transactional schema migrations
+(currently schema 3).
+Favorites span `Authorization/IAgentFavoriteStore.cs` (per-user favorite contract),
+the `AddFavorite` / `RemoveFavorite` requests and the `Favorites` list on the
+`ListServices` result in `Ipc/`, the matching `AgentDispatcher` handlers, and
+`Web/Pages/Services/Index.cshtml.cs` with `_ServiceTable.cshtml` (sections and star toggle).
 Operator guidance is in [`service-environment.md`](service-environment.md).
 
 ### `src/Serval.Domain`
@@ -97,7 +102,8 @@ tests/Serval.Application.Tests/Services/
 and result protocol. `Services/ISystemServiceIdentityInventory.cs` carries
 canonical service IDs and aliases to the Agent policy boundary.
 `Authorization/IAgentPolicyStore.cs` defines the grant and audit contract used
-by Agent authorization; its SQLite implementation is in Infrastructure.
+by Agent authorization, and `Authorization/IAgentFavoriteStore.cs` the per-user
+favorite services contract; both SQLite implementations are in Infrastructure.
 
 ---
 
@@ -209,8 +215,8 @@ Real-systemd and D-Bus integration tests are also located in this project.
 
 General infrastructure project.
 
-`Policy/AgentPolicyStore.cs` implements the Agent-owned SQLite grant and audit
-store. The Agent alone opens its root-only database.
+`Policy/AgentPolicyStore.cs` implements the Agent-owned SQLite grant, favorite and
+audit store. The Agent alone opens its root-only database.
 
 Corresponding test project:
 
@@ -265,7 +271,7 @@ src/Serval.Agent/AgentConfiguration.cs
 
 `Program.cs` validates root-owned deployment configuration and composes the
 Agent. `AgentSocketServer` checks kernel peer credentials and bounds local
-connections. `AgentDispatcher` validates and authorizes the nine allowed
+connections. `AgentDispatcher` validates and authorizes the eleven allowed
 operations. `AgentSessions`, `LinuxPam` and `LinuxAccountChecks` own session,
 PAM and current Linux identity checks. `Serval.Systemd` provides read-only
 service inventory and inspection, and its `SystemdProtectedServicePolicy`

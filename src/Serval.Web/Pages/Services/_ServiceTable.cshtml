@@ -1,0 +1,36 @@
+@model Serval.Web.Pages.Services.ServiceTableModel
+@{
+    var owner = Model.Page;
+}
+<table class="service-table"@(Model.LabelledBy is null ? null : Html.Raw(" aria-labelledby=\"" + Model.LabelledBy + "\""))>
+    <thead><tr><th scope="col">Usługa</th><th scope="col">Opis</th><th scope="col">Stan</th><th scope="col">Podstan</th><th scope="col">Załadowanie</th></tr></thead>
+    <tbody data-service-rows>
+    @foreach (var service in Model.Rows)
+    {
+        var isVisible = owner.FilteredServices.Contains(service);
+        var isFavorite = owner.IsFavorite(service);
+        var favoriteLabel = isFavorite ? $"Usuń {service.Id} z ulubionych" : $"Dodaj {service.Id} do ulubionych";
+        <tr hidden="@(!isVisible)" data-service-row data-id="@service.Id" data-description="@service.Description" data-state="@service.ActiveState">
+            <td>
+                <div class="service-cell">
+                    <form class="favorite-form" method="post" asp-page="/Services/Index" asp-page-handler="Favorite">
+                        <input type="hidden" name="service" value="@service.Id" />
+                        <input type="hidden" name="action" value="@(isFavorite ? "remove" : "add")" />
+                        <input type="hidden" name="q" value="@owner.Query" data-favorite-query />
+                        <input type="hidden" name="state" value="@owner.State" data-favorite-state />
+                        <button class="favorite-toggle" type="submit" aria-pressed="@(isFavorite ? "true" : "false")" title="@favoriteLabel">
+                            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.9L12 16.9 6.8 19.7l1-5.9-4.3-4.1 5.9-.8z" /></svg>
+                            <span class="visually-hidden">@favoriteLabel</span>
+                        </button>
+                    </form>
+                    <a class="service-link" asp-page="/Services/Details" asp-route-service="@service.Id" asp-route-q="@owner.Query" asp-route-state="@owner.State" data-service-link>@service.Id</a>
+                </div>
+            </td>
+            <td>@(string.IsNullOrEmpty(service.Description) ? "Brak opisu" : service.Description)</td>
+            <td><partial name="_StatusBadge" model="service.ActiveState" /></td>
+            <td><code>@service.SubState</code></td>
+            <td><code>@service.LoadState</code></td>
+        </tr>
+    }
+    </tbody>
+</table>

@@ -178,6 +178,90 @@ public sealed class BrowserInteractionTests
     }
 
     [Fact]
+    public async Task FilteringSpansFavoriteSectionsAndHidesSectionsWithoutMatches()
+    {
+        var agent = new TestAgentClient(
+            [
+                new("nginx.service", "Serwer WWW", "loaded", "active", "running"),
+                new("worker.service", "Zadania w tle", "loaded", "inactive", "dead"),
+                new("backup.service", "Kopia zapasowa", "loaded", "failed", "failed"),
+                new("redis.service", "Pamięć podręczna", "loaded", "active", "running"),
+            ],
+            loginResult: new AgentResult.Login(AgentResultCode.Success, "opaque-token"),
+            favorites: ["nginx.service", "worker.service"]);
+        await using var factory = new ServalWebFactory(agent);
+        var baseAddress = StartLoopback(factory);
+        using var playwright = await Playwright.CreateAsync();
+        await using var browser = await playwright.Chromium.LaunchAsync(new() { Headless = true });
+        await using var context = await browser.NewContextAsync(new() { IgnoreHTTPSErrors = true });
+        var page = await context.NewPageAsync();
+        await SignInAsync(page, baseAddress);
+
+        var favorites = page.GetByRole(AriaRole.Heading, new() { Name = "Ulubione" });
+        var others = page.GetByRole(AriaRole.Heading, new() { Name = "Pozostałe usługi" });
+        var noResults = page.GetByText("Brak wyników.");
+        Assert.True(await favorites.IsVisibleAsync());
+        Assert.True(await others.IsVisibleAsync());
+
+        await page.GetByPlaceholder("Szukaj po nazwie lub opisie").FillAsync("o");
+        await page.GetByText("Wyświetlono 3 z 4 usług").WaitForAsync();
+        Assert.True(await favorites.IsVisibleAsync());
+        Assert.True(await others.IsVisibleAsync());
+
+        await page.GetByPlaceholder("Szukaj po nazwie lub opisie").FillAsync("backup");
+        await page.GetByText("Wyświetlono 1 z 4 usług").WaitForAsync();
+        Assert.False(await favorites.IsVisibleAsync());
+        Assert.True(await others.IsVisibleAsync());
+        Assert.False(await noResults.IsVisibleAsync());
+
+        await page.GetByPlaceholder("Szukaj po nazwie lub opisie").FillAsync("nginx");
+        await page.GetByText("Wyświetlono 1 z 4 usług").WaitForAsync();
+        Assert.True(await favorites.IsVisibleAsync());
+        Assert.False(await others.IsVisibleAsync());
+
+        await page.GetByPlaceholder("Szukaj po nazwie lub opisie").FillAsync("brak-takiej-uslugi");
+        await page.GetByText("Wyświetlono 0 z 4 usług").WaitForAsync();
+        Assert.False(await favorites.IsVisibleAsync());
+        Assert.False(await others.IsVisibleAsync());
+        Assert.True(await noResults.IsVisibleAsync());
+
+        await page.GetByPlaceholder("Szukaj po nazwie lub opisie").FillAsync("redis");
+        await page.GetByText("Wyświetlono 1 z 4 usług").WaitForAsync();
+        Assert.Equal("redis", await page.Locator("[data-favorite-query]").First.InputValueAsync());
+    }
+
+    [Fact]
+    public async Task StarToggleWorksWithoutScriptAndKeepsFilters()
+    {
+        var agent = new TestAgentClient(
+            loginResult: new AgentResult.Login(AgentResultCode.Success, "opaque-token"));
+        await using var factory = new ServalWebFactory(agent);
+        var baseAddress = StartLoopback(factory);
+        using var playwright = await Playwright.CreateAsync();
+        await using var browser = await playwright.Chromium.LaunchAsync(new() { Headless = true });
+        await using var context = await browser.NewContextAsync(new()
+        {
+            JavaScriptEnabled = false,
+            IgnoreHTTPSErrors = true,
+        });
+        var page = await context.NewPageAsync();
+        await SignInAsync(page, baseAddress);
+        await page.GotoAsync(new Uri(baseAddress, "/Services?q=e").ToString());
+
+        await page.GetByRole(AriaRole.Button, new() { Name = "Dodaj worker.service do ulubionych" }).ClickAsync();
+        await page.GetByRole(AriaRole.Heading, new() { Name = "Ulubione" }).WaitForAsync();
+        Assert.EndsWith("/Services?q=e", page.Url, StringComparison.Ordinal);
+        Assert.Contains("worker.service", agent.FavoriteIds);
+        var remove = page.GetByRole(AriaRole.Button, new() { Name = "Usuń worker.service z ulubionych" });
+        Assert.Equal("true", await remove.GetAttributeAsync("aria-pressed"));
+
+        await remove.ClickAsync();
+        await page.GetByRole(AriaRole.Button, new() { Name = "Dodaj worker.service do ulubionych" }).WaitForAsync();
+        Assert.Equal(0, await page.GetByRole(AriaRole.Heading, new() { Name = "Ulubione" }).CountAsync());
+        Assert.Empty(agent.FavoriteIds);
+    }
+
+    [Fact]
     public async Task SuccessfulEmptyInventoryKeepsFallbackAndRevalidatesPersistedPage()
     {
         await using var factory = new ServalWebFactory(new TestAgentClient(

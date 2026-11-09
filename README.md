@@ -48,7 +48,7 @@ Browser -> Serval.Web (unprivileged) -> local IPC -> Serval.Agent (root)
 
 - `Serval.Web` runs as the dedicated unprivileged `serval-web` account.
 - The Agent authenticates the socket peer from kernel credentials and accepts
-  only seven bounded typed operations.
+  only eleven bounded typed operations.
 - The Agent derives the delegated user from its own session state and performs
   authorization again for every request.
 - Caller-supplied usernames, roles, groups and authorization flags are never

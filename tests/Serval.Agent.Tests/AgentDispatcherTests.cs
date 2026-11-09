@@ -589,6 +589,287 @@ public sealed class AgentDispatcherTests
         Assert.Null(absent.Service);
     }
 
+    [Fact]
+    public async Task ListFavoritesStayWithinAuthorizedUnprotectedOutput()
+    {
+        using var fixture = new Fixture();
+        fixture.Inventory.Services =
+        [
+            Service("a.service"), Service("b.service"), Service("c.service"),
+            Service("hidden.service", "ssh.service"),
+        ];
+        fixture.Identities.Accounts["admin"] = Account("admin", 1001, new LinuxGroup("sudo", 27));
+        fixture.Identities.Accounts["alice"] = Account("alice", 1002);
+        var admin = await fixture.LoginAsync("admin");
+        var alice = await fixture.LoginAsync("alice");
+        foreach (var service in new[] { "a.service", "b.service" })
+        {
+            await GrantViewAsync(fixture, admin, "alice", service);
+        }
+
+        foreach (var stored in new[] { "a.service", "c.service", "hidden.service", "gone.service" })
+        {
+            fixture.Policy.TryAdd("alice", 1002, stored, 100, StoreAudit("AddFavorite"));
+        }
+
+        fixture.Policy.TryAdd("bob", 1003, "b.service", 100, StoreAudit("AddFavorite"));
+
+        var list = await ListAsync(fixture, alice, "fav-list");
+        Assert.Equal(["a.service", "b.service"], list.Services!.Select(item => item.Id));
+        Assert.Equal(["a.service"], list.Favorites);
+    }
+
+    [Fact]
+    public async Task RevokedGrantHidesFavoriteAndReGrantRestoresIt()
+    {
+        using var fixture = new Fixture();
+        fixture.Inventory.Services = [Service("a.service")];
+        fixture.Identities.Accounts["admin"] = Account("admin", 1001, new LinuxGroup("sudo", 27));
+        fixture.Identities.Accounts["alice"] = Account("alice", 1002);
+        var admin = await fixture.LoginAsync("admin");
+        var alice = await fixture.LoginAsync("alice");
+        var grantId = await GrantViewAsync(fixture, admin, "alice", "a.service");
+        Assert.Equal(AgentResultCode.Success, (await AddFavoriteAsync(fixture, alice, "a.service", "fav-add")).Code);
+        Assert.Equal(["a.service"], (await ListAsync(fixture, alice, "fav-l1")).Favorites);
+
+        Assert.Equal(AgentResultCode.Success, (await fixture.Dispatcher.DispatchAsync(
+            new AgentRequest.RemoveGrant("fav-revoke", admin, grantId), TestContext.Current.CancellationToken)).Code);
+        var hidden = await ListAsync(fixture, alice, "fav-l2");
+        Assert.Empty(hidden.Services!);
+        Assert.Empty(hidden.Favorites!);
+
+        await GrantViewAsync(fixture, admin, "alice", "a.service");
+        Assert.Equal(["a.service"], (await ListAsync(fixture, alice, "fav-l3")).Favorites);
+    }
+
+    [Fact]
+    public async Task ListServicesFavoriteStoreFailureYieldsUnavailableWithoutPartialData()
+    {
+        using var fixture = new Fixture();
+        fixture.Inventory.Services = [Service("a.service")];
+        fixture.Identities.Accounts["admin"] = Account("admin", 1001, new LinuxGroup("sudo", 27));
+        var admin = await fixture.LoginAsync("admin");
+        fixture.PolicyFacade.ThrowOnFavorites = true;
+
+        var list = await ListAsync(fixture, admin, "fav-list-fail");
+
+        Assert.Equal(AgentResultCode.Unavailable, list.Code);
+        Assert.Null(list.Services);
+        Assert.Null(list.Favorites);
+        Assert.Equal("Unavailable", fixture.AuditOutcome("fav-list-fail"));
+    }
+
+    [Fact]
+    public async Task AddFavoriteStoresCanonicalIdentityOnceAndAuditsIt()
+    {
+        using var fixture = new Fixture();
+        fixture.Inventory.Services = [Service("a.service", "alias.service")];
+        fixture.Identities.Accounts["alice"] = Account("alice", 1002);
+        fixture.Identities.Accounts["admin"] = Account("admin", 1001, new LinuxGroup("sudo", 27));
+        var admin = await fixture.LoginAsync("admin");
+        var alice = await fixture.LoginAsync("alice");
+        await GrantViewAsync(fixture, admin, "alice", "a.service");
+
+        var viaAlias = await AddFavoriteAsync(fixture, alice, "alias.service", "fav-alias");
+        var direct = await AddFavoriteAsync(fixture, alice, "a.service", "fav-direct");
+
+        Assert.Equal(AgentResultCode.Success, viaAlias.Code);
+        Assert.Equal(AgentResultCode.Success, direct.Code);
+        Assert.Equal(["a.service"], fixture.Policy.ListFavorites("alice", 1002));
+        Assert.Equal("Success", fixture.AuditOutcome("fav-alias"));
+        Assert.Equal(("alice", 1002L), fixture.AuditActor("fav-alias"));
+        Assert.Equal(("AddFavorite", "a.service"), fixture.AuditOperationAndService("fav-alias"));
+    }
+
+    [Fact]
+    public async Task AddFavoriteRejectsUnauthorizedProtectedAndMissingTargetsIdentically()
+    {
+        using var fixture = new Fixture();
+        fixture.Inventory.Services =
+        [
+            Service("allowed.service"), Service("other.service"),
+            Service("hidden.service", "ssh.service"),
+        ];
+        fixture.Identities.Accounts["alice"] = Account("alice", 1002);
+        fixture.Identities.Accounts["admin"] = Account("admin", 1001, new LinuxGroup("sudo", 27));
+        var admin = await fixture.LoginAsync("admin");
+        var alice = await fixture.LoginAsync("alice");
+        await GrantViewAsync(fixture, admin, "alice", "allowed.service");
+
+        foreach (var target in new[] { "other.service", "ssh.service", "hidden.service", "absent.service" })
+        {
+            var result = await AddFavoriteAsync(fixture, alice, target, "fav-reject");
+            Assert.Equal(AgentResultCode.NotFound, result.Code);
+        }
+
+        var adminProtected = await AddFavoriteAsync(fixture, admin, "hidden.service", "fav-admin-protected");
+        Assert.Equal(AgentResultCode.NotFound, adminProtected.Code);
+        Assert.Empty(fixture.Policy.ListFavorites("alice", 1002));
+        Assert.Empty(fixture.Policy.ListFavorites("admin", 1001));
+    }
+
+    [Fact]
+    public async Task AddFavoriteRejectsMalformedNamesAndBadSessionsBeforeAnyLookup()
+    {
+        using var fixture = new Fixture();
+        fixture.Inventory.Services = [Service("a.service")];
+        fixture.Identities.Accounts["admin"] = Account("admin", 1001, new LinuxGroup("sudo", 27));
+        var admin = await fixture.LoginAsync("admin");
+        var inspectsBefore = fixture.Inventory.InspectCalls;
+
+        foreach (var invalid in new[] { "worker@.service", "../a.service", "-bad/.service", "a service" })
+        {
+            Assert.Equal(AgentResultCode.InvalidRequest,
+                (await AddFavoriteAsync(fixture, admin, invalid, "fav-invalid")).Code);
+        }
+
+        Assert.Equal(AgentResultCode.Unauthenticated,
+            (await AddFavoriteAsync(fixture, "forged-session", "a.service", "fav-forged")).Code);
+        Assert.Equal(inspectsBefore, fixture.Inventory.InspectCalls);
+        Assert.Empty(fixture.Policy.ListFavorites("admin", 1001));
+        Assert.Equal("Unauthenticated", fixture.AuditOutcome("fav-forged"));
+    }
+
+    [Fact]
+    public async Task AddFavoriteRejectsBeyondTheLimitButAcceptsExistingOnes()
+    {
+        using var fixture = new Fixture();
+        var services = Enumerable.Range(0, 101).Select(index => Service($"s{index:D3}.service")).ToArray();
+        fixture.Inventory.Services = services;
+        fixture.Identities.Accounts["admin"] = Account("admin", 1001, new LinuxGroup("sudo", 27));
+        var admin = await fixture.LoginAsync("admin");
+        for (var index = 0; index < 100; index++)
+        {
+            Assert.Equal(AgentResultCode.Success,
+                (await AddFavoriteAsync(fixture, admin, $"s{index:D3}.service", "fav-fill")).Code);
+        }
+
+        var rejected = await AddFavoriteAsync(fixture, admin, "s100.service", "fav-limit");
+        var existing = await AddFavoriteAsync(fixture, admin, "s042.service", "fav-existing");
+
+        Assert.Equal(AgentResultCode.LimitReached, rejected.Code);
+        Assert.Equal("LimitReached", fixture.AuditOutcome("fav-limit"));
+        Assert.Equal(AgentResultCode.Success, existing.Code);
+        var stored = fixture.Policy.ListFavorites("admin", 1001);
+        Assert.Equal(100, stored.Count);
+        Assert.DoesNotContain("s100.service", stored);
+    }
+
+    [Fact]
+    public async Task RemoveFavoriteReturnsIdenticalSuccessAndTouchesOnlyTheCaller()
+    {
+        using var fixture = new Fixture();
+        fixture.Inventory.Services =
+        [
+            Service("a.service", "alias.service"), Service("other.service"),
+            Service("hidden.service", "ssh.service"),
+        ];
+        fixture.Identities.Accounts["alice"] = Account("alice", 1002);
+        fixture.Identities.Accounts["admin"] = Account("admin", 1001, new LinuxGroup("sudo", 27));
+        var admin = await fixture.LoginAsync("admin");
+        var alice = await fixture.LoginAsync("alice");
+        await GrantViewAsync(fixture, admin, "alice", "a.service");
+        await AddFavoriteAsync(fixture, alice, "a.service", "fav-seed");
+        fixture.Policy.TryAdd("admin", 1001, "a.service", 100, StoreAudit("AddFavorite"));
+        fixture.Policy.TryAdd("alice", 1002, "gone.service", 100, StoreAudit("AddFavorite"));
+
+        var results = new List<AgentResultCode>();
+        foreach (var target in new[] { "alias.service", "a.service", "other.service", "ssh.service",
+            "hidden.service", "absent.service", "gone.service" })
+        {
+            results.Add((await RemoveFavoriteAsync(fixture, alice, target, "fav-remove-" + target.Replace('.', '-'))).Code);
+        }
+
+        Assert.All(results, code => Assert.Equal(AgentResultCode.Success, code));
+        Assert.Empty(fixture.Policy.ListFavorites("alice", 1002));
+        Assert.Equal(["a.service"], fixture.Policy.ListFavorites("admin", 1001));
+        Assert.Equal(("RemoveFavorite", "a.service"), fixture.AuditOperationAndService("fav-remove-alias-service"));
+        foreach (var unresolved in new[] { "other.service", "ssh.service", "hidden.service", "absent.service", "gone.service" })
+        {
+            Assert.Equal(("RemoveFavorite", null), fixture.AuditOperationAndService("fav-remove-" + unresolved.Replace('.', '-')));
+        }
+    }
+
+    [Fact]
+    public async Task RemoveFavoriteRejectsMalformedNamesAndBadSessions()
+    {
+        using var fixture = new Fixture();
+        fixture.Inventory.Services = [Service("a.service")];
+        fixture.Identities.Accounts["admin"] = Account("admin", 1001, new LinuxGroup("sudo", 27));
+        var admin = await fixture.LoginAsync("admin");
+        fixture.Policy.TryAdd("admin", 1001, "a.service", 100, StoreAudit("AddFavorite"));
+
+        foreach (var invalid in new[] { "worker@.service", "../a.service", "bad name" })
+        {
+            Assert.Equal(AgentResultCode.InvalidRequest,
+                (await RemoveFavoriteAsync(fixture, admin, invalid, "fav-rm-invalid")).Code);
+        }
+
+        Assert.Equal(AgentResultCode.Unauthenticated,
+            (await RemoveFavoriteAsync(fixture, "forged-session", "a.service", "fav-rm-forged")).Code);
+        Assert.Equal(["a.service"], fixture.Policy.ListFavorites("admin", 1001));
+    }
+
+    [Fact]
+    public async Task FavoriteOperationsFailClosedAndAuditWhenTheStoreFails()
+    {
+        using var fixture = new Fixture();
+        fixture.Inventory.Services = [Service("a.service")];
+        fixture.Identities.Accounts["admin"] = Account("admin", 1001, new LinuxGroup("sudo", 27));
+        var admin = await fixture.LoginAsync("admin");
+        fixture.Policy.TryAdd("admin", 1001, "a.service", 100, StoreAudit("AddFavorite"));
+        fixture.PolicyFacade.ThrowOnFavorites = true;
+
+        Assert.Equal(AgentResultCode.Unavailable, (await AddFavoriteAsync(fixture, admin, "a.service", "fav-add-fail")).Code);
+        Assert.Equal(AgentResultCode.Unavailable, (await RemoveFavoriteAsync(fixture, admin, "a.service", "fav-rm-fail")).Code);
+
+        Assert.Equal("Unavailable", fixture.AuditOutcome("fav-add-fail"));
+        Assert.Equal("Unavailable", fixture.AuditOutcome("fav-rm-fail"));
+        Assert.Equal(("admin", 1001L), fixture.AuditActor("fav-add-fail"));
+        fixture.PolicyFacade.ThrowOnFavorites = false;
+        Assert.Equal(["a.service"], fixture.Policy.ListFavorites("admin", 1001));
+    }
+
+    [Fact]
+    public async Task FavoriteOperationsReadNoEnvironmentData()
+    {
+        using var fixture = new Fixture();
+        fixture.Inventory.Services = [Service("a.service")];
+        fixture.Identities.Accounts["admin"] = Account("admin", 1001, new LinuxGroup("sudo", 27));
+        var admin = await fixture.LoginAsync("admin");
+
+        await AddFavoriteAsync(fixture, admin, "a.service", "fav-env-add");
+        await RemoveFavoriteAsync(fixture, admin, "a.service", "fav-env-remove");
+
+        Assert.Equal(0, fixture.Environment.Calls);
+    }
+
+    private static async Task<AgentResult.ListServices> ListAsync(Fixture fixture, string session, string correlation) =>
+        Assert.IsType<AgentResult.ListServices>(await fixture.Dispatcher.DispatchAsync(
+            new AgentRequest.ListServices(correlation, session), TestContext.Current.CancellationToken));
+
+    private static async Task<AgentResult.AddFavorite> AddFavoriteAsync(
+        Fixture fixture, string session, string service, string correlation) =>
+        Assert.IsType<AgentResult.AddFavorite>(await fixture.Dispatcher.DispatchAsync(
+            new AgentRequest.AddFavorite(correlation, session, service), TestContext.Current.CancellationToken));
+
+    private static async Task<AgentResult.RemoveFavorite> RemoveFavoriteAsync(
+        Fixture fixture, string session, string service, string correlation) =>
+        Assert.IsType<AgentResult.RemoveFavorite>(await fixture.Dispatcher.DispatchAsync(
+            new AgentRequest.RemoveFavorite(correlation, session, service), TestContext.Current.CancellationToken));
+
+    private static async Task<long> GrantViewAsync(Fixture fixture, string adminSession, string user, string service)
+    {
+        var added = Assert.IsType<AgentResult.AddGrant>(await fixture.Dispatcher.DispatchAsync(
+            new AgentRequest.AddGrant("grant-" + Guid.NewGuid().ToString("N"), adminSession, "User", user, "Service.View", service),
+            TestContext.Current.CancellationToken));
+        Assert.Equal(AgentResultCode.Success, added.Code);
+        return added.GrantId!.Value;
+    }
+
+    private static AuditEntry StoreAudit(string operation) =>
+        new("seed", 1, operation, null, "Success", "seed", DateTimeOffset.UtcNow);
+
     private static LinuxAccount Account(string name, uint uid, params LinuxGroup[] groups) =>
         new(name, uid, 500, groups);
 
@@ -618,7 +899,7 @@ public sealed class AgentDispatcherTests
             var clock = timeProvider ?? TimeProvider.System;
             var sessions = new AgentSessions(TimeSpan.FromMinutes(15), Identities, clock);
             Dispatcher = new AgentDispatcher(new AgentConfiguration(2000, 2000, "sudo", 27,
-                TimeSpan.FromMinutes(15)), Identities, sessions, PolicyFacade, Inventory, clock, Environment);
+                TimeSpan.FromMinutes(15)), Identities, sessions, PolicyFacade, PolicyFacade, Inventory, clock, Environment);
         }
 
         public string DatabasePath { get; }
@@ -658,6 +939,18 @@ public sealed class AgentDispatcherTests
                 reader.IsDBNull(1) ? null : reader.GetInt64(1));
         }
 
+        public (string Operation, string? Service) AuditOperationAndService(string correlation)
+        {
+            using var connection = new SqliteConnection($"Data Source={DatabasePath};Pooling=False");
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT operation, service FROM audit WHERE correlation_id = $correlation ORDER BY id DESC LIMIT 1";
+            command.Parameters.AddWithValue("$correlation", correlation);
+            using var reader = command.ExecuteReader();
+            Assert.True(reader.Read());
+            return (reader.GetString(0), reader.IsDBNull(1) ? null : reader.GetString(1));
+        }
+
         public async Task<string> LoginAsync(string name)
         {
             var result = Assert.IsType<AgentResult.Login>(await Dispatcher.DispatchAsync(
@@ -677,9 +970,23 @@ public sealed class AgentDispatcherTests
         }
     }
 
-    private sealed class TestPolicyStore(AgentPolicyStore inner) : IAgentPolicyStore
+    private sealed class TestPolicyStore(AgentPolicyStore inner) : IAgentPolicyStore, IAgentFavoriteStore
     {
         public bool ThrowOnList { get; set; }
+
+        public bool ThrowOnFavorites { get; set; }
+
+        public IReadOnlyList<string> ListFavorites(string name, uint uid) =>
+            ThrowOnFavorites ? throw new InvalidOperationException("Synthetic favorites failure") : inner.ListFavorites(name, uid);
+
+        public FavoriteAddOutcome TryAdd(string name, uint uid, string service, int limit, AuditEntry audit) =>
+            ThrowOnFavorites ? throw new InvalidOperationException("Synthetic favorites failure") : inner.TryAdd(name, uid, service, limit, audit);
+
+        public void Remove(string name, uint uid, string service, AuditEntry audit)
+        {
+            if (ThrowOnFavorites) throw new InvalidOperationException("Synthetic favorites failure");
+            inner.Remove(name, uid, service, audit);
+        }
 
         public bool ThrowOnAudit { get; set; }
 

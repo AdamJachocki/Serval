@@ -91,6 +91,14 @@ Search and state combine with AND and retain Agent order. The initial response i
 
 Details and refresh links carry only bounded `q` and `state` values. The return target is always the fixed `/Services` route. Denied, missing and invalid targets retain indistinguishable HTTP 404 responses.
 
+### Favorites
+
+When the authorized inventory contains at least one of the caller's favorites, the page renders two tables, each under its own `<h2>`: **Ulubione** above **Pozostałe usługi**. Both use the inventory columns and keep Agent order, and each record appears in exactly one of them. Without favorites the page is the single table, with no heading or placeholder. Filtering and the one shared result count span both tables; `site.js` hides a section whose rows are all hidden (`data-service-section`), and the overall no-results state appears only when both are empty. A favorite that the Agent reports outside the returned list is treated as an unavailable inventory.
+
+Every row starts with a star button inside a plain `POST /Services?handler=Favorite` form (`IndexModel.OnPostFavoriteAsync`) protected by the Razor Pages antiforgery token. The button carries `aria-pressed`, a `title` and a visually hidden name (`Dodaj … do ulubionych` or `Usuń … z ulubionych`); the pressed state is also a filled star with a thicker border, so it is not colour alone. The form posts `service`, `action` (`add` or `remove`) and the current `q` and `state`, which `site.js` keeps in step with the filter fields. The handler drops `q` or `state` when repeated or over the GET limits, never reads a return URL, and answers with a redirect to the fixed `/Services` route.
+
+The redirect may add a `favorite` status query value from the fixed set `limit` and `failed`, which the GET handler maps to a fixed Polish message in the existing status region and ignores when unknown. It is not copied into details or refresh links, so the browsing context still carries only `q` and `state`. A stale session clears the cookie and redirects to the login page. Favorites live only in the Agent database, never in browser storage.
+
 | Raw `ActiveState` | Label | Presentation |
 | --- | --- | --- |
 | `active` | Aktywna | accent |
