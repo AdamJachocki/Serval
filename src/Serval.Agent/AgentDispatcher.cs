@@ -12,10 +12,13 @@ public sealed class AgentDispatcher(
     IAgentIdentityChecks identities,
     AgentSessions sessions,
     IAgentPolicyStore policy,
+    IAgentFavoriteStore favorites,
     ISystemServiceIdentityInventory inventory,
     TimeProvider clock,
     ISystemServiceEnvironmentReader? environmentReader = null)
 {
+    private const int FavoriteLimit = 100;
+
     public async Task<AgentResult> DispatchAsync(AgentRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -39,6 +42,8 @@ public sealed class AgentDispatcher(
                 AgentRequest.ListGrants grants => await ListGrantsAsync(grants, Remember, cancellationToken).ConfigureAwait(false),
                 AgentRequest.AddGrant add => await AddGrantAsync(add, Remember, cancellationToken).ConfigureAwait(false),
                 AgentRequest.RemoveGrant remove => await RemoveGrantAsync(remove, Remember, cancellationToken).ConfigureAwait(false),
+                AgentRequest.AddFavorite add => await AddFavoriteAsync(add, Remember, cancellationToken).ConfigureAwait(false),
+                AgentRequest.RemoveFavorite remove => await RemoveFavoriteAsync(remove, Remember, cancellationToken).ConfigureAwait(false),
                 AgentRequest.ListEnvironment list => await ReadEnvironmentAsync(list, list.Session, list.Service, null, Remember, RememberService, cancellationToken).ConfigureAwait(false),
                 AgentRequest.RevealEnvironmentVariable reveal => await ReadEnvironmentAsync(reveal, reveal.Session, reveal.Service, reveal.Name, Remember, RememberService, cancellationToken).ConfigureAwait(false),
                 _ => throw new AgentProtocolException(),
@@ -60,6 +65,12 @@ public sealed class AgentDispatcher(
                         sessions.RecordAcceptedActivity(add.Session);
                         break;
                     case AgentRequest.RemoveGrant remove:
+                        sessions.RecordAcceptedActivity(remove.Session);
+                        break;
+                    case AgentRequest.AddFavorite add:
+                        sessions.RecordAcceptedActivity(add.Session);
+                        break;
+                    case AgentRequest.RemoveFavorite remove:
                         sessions.RecordAcceptedActivity(remove.Session);
                         break;
                     case AgentRequest.ListEnvironment list:
@@ -104,6 +115,8 @@ public sealed class AgentDispatcher(
                     AgentRequest.ListGrants => "ListGrants",
                     AgentRequest.AddGrant => "AddGrant",
                     AgentRequest.RemoveGrant => "RemoveGrant",
+                    AgentRequest.AddFavorite => "AddFavorite",
+                    AgentRequest.RemoveFavorite => "RemoveFavorite",
                     AgentRequest.ListEnvironment => "ListEnvironment",
                     AgentRequest.RevealEnvironmentVariable => "RevealEnvironmentVariable",
                     _ => null,
@@ -275,9 +288,14 @@ public sealed class AgentDispatcher(
 
         cancellationToken.ThrowIfCancellationRequested();
         published.Sort((left, right) => StringComparer.Ordinal.Compare(left.Id, right.Id));
+        var stored = favorites.ListFavorites(context.Value.Principal.Name, context.Value.Principal.Uid)
+            .ToHashSet(StringComparer.Ordinal);
+        var favoriteIds = published.Where(service => stored.Contains(service.Id))
+            .Select(service => service.Id).ToArray();
         policy.AppendAudit(Audit(context.Value.Principal, "ListServices", null,
             "Success", request.CorrelationId));
-        return new AgentResult.ListServices(AgentResultCode.Success, published.AsReadOnly());
+        return new AgentResult.ListServices(AgentResultCode.Success, published.AsReadOnly(),
+            Array.AsReadOnly(favoriteIds));
     }
 
     private async Task<AgentResult> InspectServiceAsync(
@@ -443,6 +461,85 @@ public sealed class AgentDispatcher(
         return new AgentResult.RemoveGrant(removed ? AgentResultCode.Success : AgentResultCode.NotFound);
     }
 
+    private async Task<AgentResult> AddFavoriteAsync(
+        AgentRequest.AddFavorite request, Action<AgentPrincipal> remember,
+        CancellationToken cancellationToken)
+    {
+        var context = await AuthenticateAndResolveAsync(request.Session, remember, cancellationToken).ConfigureAwait(false);
+        if (context is null)
+        {
+            return AuditedFailure(request, null, "AddFavorite", null, AgentResultCode.Unauthenticated);
+        }
+
+        var principal = context.Value.Principal;
+        if (!TryConcreteService(request.Service, out var id))
+        {
+            return AuditedFailure(request, principal, "AddFavorite", null, AgentResultCode.InvalidRequest);
+        }
+
+        if (SystemdProtectedServicePolicy.IsProtected(id!, [id!]))
+        {
+            return AuditedFailure(request, principal, "AddFavorite", null, AgentResultCode.NotFound);
+        }
+
+        var inspection = await inventory.InspectIdentityAsync(id!, cancellationToken).ConfigureAwait(false);
+        if (inspection is not ServiceIdentityInspectionResult.Found found ||
+            SystemdProtectedServicePolicy.IsProtected(found.Identity.Service.Id, found.Identity.Names))
+        {
+            return AuditedFailure(request, principal, "AddFavorite", null, AgentResultCode.NotFound);
+        }
+
+        var canonical = found.Identity.Service.Id.Value;
+        if (!CanView(canonical, context.Value.Account, policy.ListGrants()))
+        {
+            return AuditedFailure(request, principal, "AddFavorite", canonical, AgentResultCode.NotFound);
+        }
+
+        var outcome = favorites.TryAdd(principal.Name, principal.Uid, canonical, FavoriteLimit,
+            Audit(principal, "AddFavorite", canonical, "Success", request.CorrelationId));
+        return new AgentResult.AddFavorite(outcome == FavoriteAddOutcome.LimitReached
+            ? AgentResultCode.LimitReached : AgentResultCode.Success);
+    }
+
+    private async Task<AgentResult> RemoveFavoriteAsync(
+        AgentRequest.RemoveFavorite request, Action<AgentPrincipal> remember,
+        CancellationToken cancellationToken)
+    {
+        var context = await AuthenticateAndResolveAsync(request.Session, remember, cancellationToken).ConfigureAwait(false);
+        if (context is null)
+        {
+            return AuditedFailure(request, null, "RemoveFavorite", null, AgentResultCode.Unauthenticated);
+        }
+
+        var principal = context.Value.Principal;
+        if (!TryConcreteService(request.Service, out var id))
+        {
+            return AuditedFailure(request, principal, "RemoveFavorite", null, AgentResultCode.InvalidRequest);
+        }
+
+        // A delete is keyed by the caller's own identity, so the target only decides which
+        // of the caller's rows go away. The result and audit never reveal what it resolved to.
+        var target = id!.Value;
+        string? auditService = null;
+        if (!SystemdProtectedServicePolicy.IsProtected(id, [id]))
+        {
+            var inspection = await inventory.InspectIdentityAsync(id, cancellationToken).ConfigureAwait(false);
+            if (inspection is ServiceIdentityInspectionResult.Found found &&
+                !SystemdProtectedServicePolicy.IsProtected(found.Identity.Service.Id, found.Identity.Names))
+            {
+                target = found.Identity.Service.Id.Value;
+                if (CanView(target, context.Value.Account, policy.ListGrants()))
+                {
+                    auditService = target;
+                }
+            }
+        }
+
+        favorites.Remove(principal.Name, principal.Uid, target,
+            Audit(principal, "RemoveFavorite", auditService, "Success", request.CorrelationId));
+        return new AgentResult.RemoveFavorite(AgentResultCode.Success);
+    }
+
     private async Task<(AgentPrincipal Principal, LinuxAccount Account)?> AuthenticateAndResolveAsync(
         string token, Action<AgentPrincipal> remember, CancellationToken cancellationToken)
     {
@@ -530,6 +627,8 @@ public sealed class AgentDispatcher(
         AgentRequest.ListGrants => new AgentResult.ListGrants(code, null),
         AgentRequest.AddGrant => new AgentResult.AddGrant(code, null),
         AgentRequest.RemoveGrant => new AgentResult.RemoveGrant(code),
+        AgentRequest.AddFavorite => new AgentResult.AddFavorite(code),
+        AgentRequest.RemoveFavorite => new AgentResult.RemoveFavorite(code),
         AgentRequest.ListEnvironment => new AgentResult.ListEnvironment(code, null),
         AgentRequest.RevealEnvironmentVariable => new AgentResult.RevealEnvironmentVariable(code, null),
         _ => throw new AgentProtocolException(),

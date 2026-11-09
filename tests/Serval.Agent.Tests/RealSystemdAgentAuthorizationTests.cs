@@ -41,7 +41,7 @@ public sealed class RealSystemdAgentAuthorizationTests
             var sessions = new AgentSessions(TimeSpan.FromMinutes(15), identities, TimeProvider.System);
             var dispatcher = new AgentDispatcher(
                 new AgentConfiguration(2000, 2000, "sudo", 27, TimeSpan.FromMinutes(15)),
-                identities, sessions, store, new SystemdServiceInventory(), TimeProvider.System);
+                identities, sessions, store, store, new SystemdServiceInventory(), TimeProvider.System);
             var admin = await LoginAsync(dispatcher, "admin");
             var alice = await LoginAsync(dispatcher, "alice");
 
@@ -76,6 +76,26 @@ public sealed class RealSystemdAgentAuthorizationTests
             Assert.Equal(AgentResultCode.Success, byAlias.Code);
             Assert.Equal(inactive, byAlias.Service?.Id);
 
+            var favoriteViaAlias = Assert.IsType<AgentResult.AddFavorite>(await dispatcher.DispatchAsync(
+                new AgentRequest.AddFavorite("real-fav-alias", alice, alias), TestContext.Current.CancellationToken));
+            Assert.Equal(AgentResultCode.Success, favoriteViaAlias.Code);
+            var favorited = Assert.IsType<AgentResult.ListServices>(await dispatcher.DispatchAsync(
+                new AgentRequest.ListServices("real-fav-list", alice), TestContext.Current.CancellationToken));
+            Assert.Equal([inactive], favorited.Favorites);
+            foreach (var target in new[] { lookalike, privileged, privilegedAlias,
+                "systemd-journald.service", prefix + "-worker@.service", "../bad.service" })
+            {
+                var rejected = Assert.IsType<AgentResult.AddFavorite>(await dispatcher.DispatchAsync(
+                    new AgentRequest.AddFavorite("real-fav-deny", alice, target), TestContext.Current.CancellationToken));
+                Assert.NotEqual(AgentResultCode.Success, rejected.Code);
+            }
+
+            Assert.Equal([inactive], store.ListFavorites("alice", 1002));
+            var removed = Assert.IsType<AgentResult.RemoveFavorite>(await dispatcher.DispatchAsync(
+                new AgentRequest.RemoveFavorite("real-fav-remove", alice, alias), TestContext.Current.CancellationToken));
+            Assert.Equal(AgentResultCode.Success, removed.Code);
+            Assert.Empty(store.ListFavorites("alice", 1002));
+
             foreach (var target in new[] { lookalike, privileged, privilegedAlias,
                 "systemd-journald.service", prefix + "-worker@.service", "../bad.service" })
             {
@@ -103,7 +123,7 @@ public sealed class RealSystemdAgentAuthorizationTests
                 (serviceId, token) => new SystemdServiceInspector().InspectAsync(serviceId, token));
             var failingDispatcher = new AgentDispatcher(
                 new AgentConfiguration(2000, 2000, "sudo", 27, TimeSpan.FromMinutes(15)),
-                identities, sessions, store, failingInventory, TimeProvider.System);
+                identities, sessions, store, store, failingInventory, TimeProvider.System);
             var failedRead = Assert.IsType<AgentResult.ListServices>(await failingDispatcher.DispatchAsync(
                 new AgentRequest.ListServices("real-systemd-failure", admin),
                 TestContext.Current.CancellationToken));

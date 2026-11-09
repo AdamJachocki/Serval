@@ -116,6 +116,14 @@ public static class AgentProtocol
                     ["version", "operation", "correlationId", "session", "grantId"],
                     () => new AgentRequest.RemoveGrant(correlationId,
                         GetString(fields, "session", 128), GetPositiveId(fields, "grantId"))),
+                "AddFavorite" => WithFields(fields,
+                    ["version", "operation", "correlationId", "session", "service"],
+                    () => new AgentRequest.AddFavorite(correlationId,
+                        GetString(fields, "session", 128), GetString(fields, "service", 255))),
+                "RemoveFavorite" => WithFields(fields,
+                    ["version", "operation", "correlationId", "session", "service"],
+                    () => new AgentRequest.RemoveFavorite(correlationId,
+                        GetString(fields, "session", 128), GetString(fields, "service", 255))),
                 _ => throw new AgentProtocolException(),
             };
         }
@@ -236,6 +244,11 @@ public static class AgentProtocol
                 throw new AgentProtocolException();
             }
 
+            if (code == AgentResultCode.LimitReached && request is not AgentRequest.AddFavorite)
+            {
+                throw new AgentProtocolException();
+            }
+
             if (request is AgentRequest.ListEnvironment or AgentRequest.RevealEnvironmentVariable)
                 return ReadEnvironmentResult(root, request, code);
 
@@ -249,9 +262,7 @@ public static class AgentProtocol
                 AgentRequest.Login => new AgentResult.Login(code,
                     root.GetProperty("session").GetString()),
                 AgentRequest.Logout => new AgentResult.Logout(code),
-                AgentRequest.ListServices => new AgentResult.ListServices(code,
-                    JsonSerializer.Deserialize<AgentService[]>(root.GetProperty("services")) ??
-                    throw new AgentProtocolException()),
+                AgentRequest.ListServices => ReadListServices(root, code),
                 AgentRequest.InspectService => new AgentResult.InspectService(code,
                     JsonSerializer.Deserialize<AgentService>(root.GetProperty("service")) ??
                     throw new AgentProtocolException()),
@@ -261,6 +272,8 @@ public static class AgentProtocol
                 AgentRequest.AddGrant => new AgentResult.AddGrant(code,
                     root.GetProperty("grantId").GetInt64()),
                 AgentRequest.RemoveGrant => new AgentResult.RemoveGrant(code),
+                AgentRequest.AddFavorite => new AgentResult.AddFavorite(code),
+                AgentRequest.RemoveFavorite => new AgentResult.RemoveFavorite(code),
                 _ => throw new AgentProtocolException(),
             };
         }
@@ -275,6 +288,36 @@ public static class AgentProtocol
         }
     }
 
+    private static AgentResult.ListServices ReadListServices(JsonElement root, AgentResultCode code)
+    {
+        var services = JsonSerializer.Deserialize<AgentService[]>(root.GetProperty("services")) ??
+            throw new AgentProtocolException();
+        if (!root.TryGetProperty("favorites", out var field))
+        {
+            return new AgentResult.ListServices(code, services);
+        }
+
+        if (field.ValueKind != JsonValueKind.Array)
+        {
+            throw new AgentProtocolException();
+        }
+
+        var favorites = new List<string>();
+        var known = services.Select(service => service.Id).ToHashSet(StringComparer.Ordinal);
+        foreach (var entry in field.EnumerateArray())
+        {
+            var id = entry.ValueKind == JsonValueKind.String ? entry.GetString() : null;
+            if (id is null || !known.Contains(id) || favorites.Contains(id, StringComparer.Ordinal))
+            {
+                throw new AgentProtocolException();
+            }
+
+            favorites.Add(id);
+        }
+
+        return new AgentResult.ListServices(code, services, favorites.AsReadOnly());
+    }
+
     private static AgentResult FailureResult(AgentRequest request, AgentResultCode code) => request switch
     {
         AgentRequest.Login => new AgentResult.Login(code, null),
@@ -284,6 +327,8 @@ public static class AgentProtocol
         AgentRequest.ListGrants => new AgentResult.ListGrants(code, null),
         AgentRequest.AddGrant => new AgentResult.AddGrant(code, null),
         AgentRequest.RemoveGrant => new AgentResult.RemoveGrant(code),
+        AgentRequest.AddFavorite => new AgentResult.AddFavorite(code),
+        AgentRequest.RemoveFavorite => new AgentResult.RemoveFavorite(code),
         AgentRequest.ListEnvironment => new AgentResult.ListEnvironment(code, null),
         AgentRequest.RevealEnvironmentVariable => new AgentResult.RevealEnvironmentVariable(code, null),
         _ => throw new AgentProtocolException(),
@@ -298,6 +343,8 @@ public static class AgentProtocol
         AgentRequest.ListGrants item => new { version = Version, operation = "ListGrants", correlationId = item.CorrelationId, session = item.Session },
         AgentRequest.AddGrant item => new { version = Version, operation = "AddGrant", correlationId = item.CorrelationId, session = item.Session, subjectKind = item.SubjectKind, subject = item.Subject, grantOperation = item.Operation, service = item.Service },
         AgentRequest.RemoveGrant item => new { version = Version, operation = "RemoveGrant", correlationId = item.CorrelationId, session = item.Session, grantId = item.GrantId },
+        AgentRequest.AddFavorite item => new { version = Version, operation = "AddFavorite", correlationId = item.CorrelationId, session = item.Session, service = item.Service },
+        AgentRequest.RemoveFavorite item => new { version = Version, operation = "RemoveFavorite", correlationId = item.CorrelationId, session = item.Session, service = item.Service },
         AgentRequest.ListEnvironment item => new { version = Version, operation = "ListEnvironment", correlationId = item.CorrelationId, session = item.Session, service = item.Service },
         AgentRequest.RevealEnvironmentVariable item => new { version = Version, operation = "RevealEnvironmentVariable", correlationId = item.CorrelationId, session = item.Session, service = item.Service, name = item.Name },
         _ => throw new AgentProtocolException(),
@@ -307,11 +354,14 @@ public static class AgentProtocol
     {
         AgentResult.Login item => new { code = item.Code.ToString(), session = item.Session },
         AgentResult.Logout item => new { code = item.Code.ToString() },
+        AgentResult.ListServices item when item.Code == AgentResultCode.Success => new { code = item.Code.ToString(), services = item.Services, favorites = item.Favorites ?? [] },
         AgentResult.ListServices item => new { code = item.Code.ToString(), services = item.Services },
         AgentResult.InspectService item => new { code = item.Code.ToString(), service = item.Service },
         AgentResult.ListGrants item => new { code = item.Code.ToString(), grants = item.Grants },
         AgentResult.AddGrant item => new { code = item.Code.ToString(), grantId = item.GrantId },
         AgentResult.RemoveGrant item => new { code = item.Code.ToString() },
+        AgentResult.AddFavorite item => new { code = item.Code.ToString() },
+        AgentResult.RemoveFavorite item => new { code = item.Code.ToString() },
         AgentResult.ListEnvironment item when item.Code == AgentResultCode.Success => new { code = item.Code.ToString(), environment = item.Environment },
         AgentResult.ListEnvironment item => new { code = item.Code.ToString(), failure = item.Failure },
         _ => throw new AgentProtocolException(),

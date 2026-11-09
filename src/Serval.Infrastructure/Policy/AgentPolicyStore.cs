@@ -4,11 +4,19 @@ using Serval.Domain.Services;
 
 namespace Serval.Infrastructure.Policy;
 
-/// <summary>Agent-owned durable grant and audit state. Callers enforce identity and policy.</summary>
-public sealed class AgentPolicyStore : IAgentPolicyStore
+/// <summary>Agent-owned durable grant, favorite and audit state. Callers enforce identity and policy.</summary>
+public sealed class AgentPolicyStore : IAgentPolicyStore, IAgentFavoriteStore
 {
     public const string DatabasePath = "/var/lib/serval/policy.db";
-    private const int SchemaVersion = 2;
+    private const int SchemaVersion = 3;
+    private const string FavoritesTable = """
+        CREATE TABLE favorites (
+            subject_name TEXT NOT NULL,
+            subject_uid INTEGER NOT NULL,
+            service TEXT NOT NULL,
+            PRIMARY KEY (subject_name, subject_uid, service)
+        );
+        """;
     private readonly string path;
 
     public AgentPolicyStore() : this(DatabasePath) { }
@@ -30,7 +38,7 @@ public sealed class AgentPolicyStore : IAgentPolicyStore
             return;
         }
 
-        if (current is not (0 or 1))
+        if (current is not (0 or 1 or 2))
         {
             throw new InvalidOperationException("Unsupported Agent policy schema.");
         }
@@ -38,7 +46,7 @@ public sealed class AgentPolicyStore : IAgentPolicyStore
         using var transaction = connection.BeginTransaction();
         using var create = connection.CreateCommand();
         create.Transaction = transaction;
-        create.CommandText = current == 1 ? """
+        create.CommandText = current == 2 ? FavoritesTable + "PRAGMA user_version = 3;" : current == 1 ? """
             CREATE TABLE grants_v2 (
                 id INTEGER PRIMARY KEY,
                 subject_kind TEXT NOT NULL CHECK(subject_kind IN ('User','Group')),
@@ -52,8 +60,7 @@ public sealed class AgentPolicyStore : IAgentPolicyStore
             DROP TABLE grants;
             ALTER TABLE grants_v2 RENAME TO grants;
             ALTER TABLE audit ADD COLUMN variable_name TEXT;
-            PRAGMA user_version = 2;
-            """ : """
+            """ + FavoritesTable + "PRAGMA user_version = 3;" : """
             CREATE TABLE grants (
                 id INTEGER PRIMARY KEY,
                 subject_kind TEXT NOT NULL CHECK(subject_kind IN ('User','Group')),
@@ -74,8 +81,7 @@ public sealed class AgentPolicyStore : IAgentPolicyStore
                 timestamp_utc TEXT NOT NULL,
                 variable_name TEXT
             );
-            PRAGMA user_version = 2;
-            """;
+            """ + FavoritesTable + "PRAGMA user_version = 3;";
         create.ExecuteNonQuery();
         transaction.Commit();
     }
@@ -159,6 +165,109 @@ public sealed class AgentPolicyStore : IAgentPolicyStore
         return removed;
     }
 
+    public IReadOnlyList<string> ListFavorites(string name, uint uid)
+    {
+        ValidateFavoriteOwner(name);
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT service FROM favorites
+            WHERE subject_name = $name AND subject_uid = $uid
+            ORDER BY service
+            """;
+        command.Parameters.AddWithValue("$name", name);
+        command.Parameters.AddWithValue("$uid", (long)uid);
+        using var reader = command.ExecuteReader();
+        var favorites = new List<string>();
+        while (reader.Read())
+        {
+            var service = reader.GetString(0);
+            ValidateFavoriteService(service);
+            favorites.Add(service);
+        }
+
+        return favorites.AsReadOnly();
+    }
+
+    public FavoriteAddOutcome TryAdd(string name, uint uid, string service, int limit, AuditEntry audit)
+    {
+        ValidateFavoriteOwner(name);
+        ValidateFavoriteService(service);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
+        ValidateAudit(audit);
+        using var connection = Open();
+        using var transaction = connection.BeginTransaction();
+        using var count = connection.CreateCommand();
+        count.Transaction = transaction;
+        count.CommandText = "SELECT COUNT(*) FROM favorites WHERE subject_name = $name AND subject_uid = $uid";
+        count.Parameters.AddWithValue("$name", name);
+        count.Parameters.AddWithValue("$uid", (long)uid);
+        var stored = (long)count.ExecuteScalar()!;
+        using var insert = connection.CreateCommand();
+        insert.Transaction = transaction;
+        insert.CommandText = """
+            INSERT OR IGNORE INTO favorites(subject_name, subject_uid, service)
+            SELECT $name, $uid, $service
+            WHERE $stored < $limit OR EXISTS (
+                SELECT 1 FROM favorites WHERE subject_name = $name AND subject_uid = $uid AND service = $service)
+            """;
+        insert.Parameters.AddWithValue("$name", name);
+        insert.Parameters.AddWithValue("$uid", (long)uid);
+        insert.Parameters.AddWithValue("$service", service);
+        insert.Parameters.AddWithValue("$stored", stored);
+        insert.Parameters.AddWithValue("$limit", (long)limit);
+        var added = insert.ExecuteNonQuery() == 1;
+        FavoriteAddOutcome outcome;
+        if (added)
+        {
+            outcome = FavoriteAddOutcome.Added;
+        }
+        else
+        {
+            using var exists = connection.CreateCommand();
+            exists.Transaction = transaction;
+            exists.CommandText = """
+                SELECT COUNT(*) FROM favorites
+                WHERE subject_name = $name AND subject_uid = $uid AND service = $service
+                """;
+            exists.Parameters.AddWithValue("$name", name);
+            exists.Parameters.AddWithValue("$uid", (long)uid);
+            exists.Parameters.AddWithValue("$service", service);
+            outcome = (long)exists.ExecuteScalar()! == 1
+                ? FavoriteAddOutcome.AlreadyPresent : FavoriteAddOutcome.LimitReached;
+        }
+
+        var addAudit = audit with
+        {
+            Outcome = outcome == FavoriteAddOutcome.LimitReached ? "LimitReached" : "Success",
+        };
+        ValidateAudit(addAudit);
+        InsertAudit(connection, transaction, addAudit);
+        transaction.Commit();
+        return outcome;
+    }
+
+    public void Remove(string name, uint uid, string service, AuditEntry audit)
+    {
+        ValidateFavoriteOwner(name);
+        ValidateFavoriteService(service);
+        ValidateAudit(audit);
+        using var connection = Open();
+        using var transaction = connection.BeginTransaction();
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            DELETE FROM favorites
+            WHERE subject_name = $name AND subject_uid = $uid AND service = $service
+            """;
+        command.Parameters.AddWithValue("$name", name);
+        command.Parameters.AddWithValue("$uid", (long)uid);
+        command.Parameters.AddWithValue("$service", service);
+        command.ExecuteNonQuery();
+        InsertAudit(connection, transaction, audit);
+        transaction.Commit();
+    }
+
     public void AppendAudit(AuditEntry audit)
     {
         ValidateAudit(audit);
@@ -218,6 +327,26 @@ public sealed class AgentPolicyStore : IAgentPolicyStore
         _ = new SystemServiceId(grant.Service);
     }
 
+    private static void ValidateFavoriteOwner(string name)
+    {
+        if (name is not { Length: >= 1 and <= 128 } ||
+            name.Any(value => value is '/' or '\0' || char.IsControl(value)))
+        {
+            throw new ArgumentException("Favorite owner is invalid.", nameof(name));
+        }
+    }
+
+    private static void ValidateFavoriteService(string service)
+    {
+        if (service is not { Length: >= 1 and <= 255 } ||
+            service.EndsWith("@.service", StringComparison.Ordinal))
+        {
+            throw new ArgumentException("Favorite service is invalid.", nameof(service));
+        }
+
+        _ = new SystemServiceId(service);
+    }
+
     private static void ValidateAudit(AuditEntry audit)
     {
         ArgumentNullException.ThrowIfNull(audit);
@@ -225,11 +354,12 @@ public sealed class AgentPolicyStore : IAgentPolicyStore
             audit.ActorName?.Any(value => value is '/' or '\0' || char.IsControl(value)) == true ||
             audit.Operation is not ("Login" or "Logout" or "ListServices" or
                 "InspectService" or "ListGrants" or "AddGrant" or "RemoveGrant" or
-                "ListEnvironment" or "RevealEnvironmentVariable") ||
+                "ListEnvironment" or "RevealEnvironmentVariable" or
+                "AddFavorite" or "RemoveFavorite") ||
             (audit.VariableName is not null && !ServiceOperations.IsValidVariableName(audit.VariableName)) ||
             audit.Service?.Length > 255 || audit.Outcome.Length is < 1 or > 32 ||
             audit.Outcome is not ("Success" or "Denied" or "NotFound" or
-                "Unauthenticated" or "InvalidRequest" or "Unavailable") ||
+                "Unauthenticated" or "InvalidRequest" or "Unavailable" or "LimitReached") ||
             audit.CorrelationId.Length is < 1 or > 64 ||
             !audit.CorrelationId.All(value => value is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9' or '-' or '_'))
         {

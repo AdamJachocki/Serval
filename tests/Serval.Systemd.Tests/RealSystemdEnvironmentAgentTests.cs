@@ -23,7 +23,7 @@ public sealed partial class RealSystemdEnvironmentSourceReaderTests
         var sessions = new AgentSessions(TimeSpan.FromMinutes(15), identity, TimeProvider.System);
         var audit = new EnvironmentAudit();
         var dispatcher = new AgentDispatcher(new AgentConfiguration(2000, 2000, "sudo", 27, TimeSpan.FromMinutes(15)),
-            identity, sessions, audit, new SystemdServiceInventory(), TimeProvider.System, new SystemdServiceEnvironmentReader());
+            identity, sessions, audit, audit, new SystemdServiceInventory(), TimeProvider.System, new SystemdServiceEnvironmentReader());
         var login = Assert.IsType<AgentResult.Login>(await dispatcher.DispatchAsync(
             new AgentRequest.Login("env-login", "admin", "fixture"), TestContext.Current.CancellationToken));
         var session = login.Session!;
@@ -116,8 +116,12 @@ public sealed partial class RealSystemdEnvironmentSourceReaderTests
         await observation.AssertUnchangedAsync(TestContext.Current.CancellationToken);
     }
 
-    private sealed class EnvironmentAudit : IAgentPolicyStore
+    private sealed class EnvironmentAudit : IAgentPolicyStore, IAgentFavoriteStore
     {
+        public IReadOnlyList<string> ListFavorites(string name, uint uid) => [];
+        public FavoriteAddOutcome TryAdd(string name, uint uid, string service, int limit, AuditEntry audit) => throw new NotSupportedException();
+        public void Remove(string name, uint uid, string service, AuditEntry audit) => throw new NotSupportedException();
+
         public List<AuditEntry> Entries { get; } = [];
         public List<StoredGrant> Grants { get; } = [];
         public IReadOnlyList<StoredGrant> ListGrants() => Grants.ToArray();

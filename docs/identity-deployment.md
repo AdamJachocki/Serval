@@ -32,7 +32,7 @@ before `serval-web.service`; the Web unit depends on the Agent.
 | `/etc/pam.d/serval` | root, `0644` | PAM `common-auth` and `common-account` policy on Debian/Ubuntu |
 | `/run/serval` | root:`serval-web`, `0750` | Agent socket directory managed by systemd |
 | `/run/serval/agent.sock` | Agent-created, accessible to Web | Local typed IPC |
-| `/var/lib/serval/policy.db` | root, `0600` | SQLite grants and audit |
+| `/var/lib/serval/policy.db` | root, `0600` | SQLite grants, favorites and audit |
 | `/var/lib/serval-web/keys` | `serval-web` within its `0700` state directory | ASP.NET Core anti-forgery keys |
 
 The Agent refuses startup on missing or unsafe configuration, PAM file,
@@ -102,6 +102,21 @@ matching old binaries. Old Agent binaries reject schema 2. Never change
 `user_version` or delete new grants/audits to make a downgrade appear compatible.
 Restart Agent before Web; users must log in again because Agent sessions are
 in-memory only.
+
+## Schema 3 upgrade and rollback
+
+The same stop, backup and matching-binaries procedure applies. Agent startup
+upgrades schema 2 (or 1) to 3 in one SQLite transaction that only adds the
+`favorites` table; grants and audit history are untouched. Fresh databases start
+at version 3. Each user is limited to 100 favorites, and favorites for services
+that are unauthorized or gone are hidden but still count towards that limit.
+
+To roll back, stop both services and restore the complete pre-upgrade database
+backup with its original companion files and root ownership/mode, together with
+matching old binaries. Old Agent binaries reject schema 3 as an unsupported
+schema, and any favorites added after the upgrade are lost with the restored
+backup. Never change `user_version` or drop the table to make a downgrade appear
+compatible.
 
 ## Verification
 

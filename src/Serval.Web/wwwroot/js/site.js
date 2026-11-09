@@ -54,6 +54,9 @@
         const clear = document.querySelector("[data-clear-filters]");
         const refresh = document.querySelector("[data-filter-refresh]");
         const serviceLinks = [...document.querySelectorAll("[data-service-link]")];
+        const sections = [...document.querySelectorAll("[data-service-section]")];
+        const favoriteQueries = [...document.querySelectorAll("[data-favorite-query]")];
+        const favoriteStates = [...document.querySelectorAll("[data-favorite-state]")];
 
         filters.classList.add("is-enhanced");
 
@@ -80,12 +83,19 @@
                 if (!row.hidden) visible += 1;
             }
 
+            for (const section of sections) {
+                section.hidden = !section.querySelector("[data-service-row]:not([hidden])");
+            }
+
             resultCount.textContent = `Wyświetlono ${visible} z ${rows.length} usług`;
             noResults.hidden = visible !== 0;
             const url = currentUrl;
             query.value ? url.searchParams.set("q", query.value) : url.searchParams.delete("q");
             state.value ? url.searchParams.set("state", state.value) : url.searchParams.delete("state");
             window.history.replaceState(null, "", url);
+
+            for (const field of favoriteQueries) field.value = query.value;
+            for (const field of favoriteStates) field.value = state.value;
 
             for (const link of [...serviceLinks, refresh].filter(Boolean)) {
                 const target = new URL(link.href, window.location.href);

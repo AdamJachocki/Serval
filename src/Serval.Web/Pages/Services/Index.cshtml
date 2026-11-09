@@ -4,6 +4,9 @@
     ViewData["Title"] = "Usługi";
     ViewData["Breadcrumb"] = "Usługi";
     var selectedStateLabel = ServiceStatusPresentation.From(Model.State).Label;
+    var favoriteTable = new ServiceTableModel(Model, Model.Favorites, "favorite-services-heading");
+    var otherTable = new ServiceTableModel(Model, Model.Others, "other-services-heading");
+    var singleTable = new ServiceTableModel(Model, Model.Services, null);
 }
 
 <header class="page-header">
@@ -49,7 +52,7 @@ else
         </a>
     </form>
 
-    <p class="pending-announcement" role="status" aria-live="polite" data-pending-announcement></p>
+    <p class="pending-announcement" role="status" aria-live="polite" data-pending-announcement>@Model.FavoriteMessage</p>
     @if (Model.Services.Count == 0)
     {
         <div class="empty-state" role="status"><h2>Brak usług do wyświetlenia.</h2></div>
@@ -58,22 +61,21 @@ else
     {
         <div class="table-region" role="region" aria-label="Lista usług" tabindex="0">
             <p class="table-scroll-hint">Przewiń tabelę, aby zobaczyć pozostałe kolumny.</p>
-            <table class="service-table">
-                <thead><tr><th scope="col">Usługa</th><th scope="col">Opis</th><th scope="col">Stan</th><th scope="col">Podstan</th><th scope="col">Załadowanie</th></tr></thead>
-                <tbody data-service-rows>
-                @foreach (var service in Model.Services)
-                {
-                    var isVisible = Model.FilteredServices.Contains(service);
-                    <tr hidden="@(!isVisible)" data-service-row data-id="@service.Id" data-description="@service.Description" data-state="@service.ActiveState">
-                        <td><a class="service-link" asp-page="/Services/Details" asp-route-service="@service.Id" asp-route-q="@Model.Query" asp-route-state="@Model.State" data-service-link>@service.Id</a></td>
-                        <td>@(string.IsNullOrEmpty(service.Description) ? "Brak opisu" : service.Description)</td>
-                        <td><partial name="_StatusBadge" model="service.ActiveState" /></td>
-                        <td><code>@service.SubState</code></td>
-                        <td><code>@service.LoadState</code></td>
-                    </tr>
-                }
-                </tbody>
-            </table>
+            @if (Model.HasFavorites)
+            {
+                <section class="service-section" hidden="@(!Model.FilteredServices.Any(Model.Favorites.Contains))" data-service-section>
+                    <h2 class="service-section__title" id="favorite-services-heading">Ulubione</h2>
+                    <partial name="_ServiceTable" model="favoriteTable" />
+                </section>
+                <section class="service-section" hidden="@(!Model.FilteredServices.Any(Model.Others.Contains))" data-service-section>
+                    <h2 class="service-section__title" id="other-services-heading">Pozostałe usługi</h2>
+                    <partial name="_ServiceTable" model="otherTable" />
+                </section>
+            }
+            else
+            {
+                <partial name="_ServiceTable" model="singleTable" />
+            }
             <footer class="table-footer">
                 <p role="status" aria-live="polite" data-result-count>Wyświetlono @Model.FilteredServices.Count z @Model.Services.Count usług</p>
             </footer>
