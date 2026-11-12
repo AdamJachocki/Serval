@@ -17,7 +17,9 @@ Serval/
 ├── docs/                    Technical and design documentation
 ├── openspec/                Specifications and change artifacts
 ├── .agents/                 Agent skills and workflows
-├── .github/                 CI and GitHub configuration
+├── .github/                 CI, release workflow and GitHub configuration
+├── deploy/                  PAM policy, systemd units, shared deployment shell rules
+├── packaging/               Debian package build, maintainer scripts, serval-setup, install.sh
 ├── Serval.slnx              Solution definition
 ├── Directory.Build.props    Shared build configuration
 ├── Directory.Packages.props Central package versions
@@ -328,7 +330,8 @@ Current documents cover areas including:
 * service identity,
 * environment handling,
 * protected services.
-* identity and authorization deployment (`identity-deployment.md`).
+* identity and authorization deployment (`identity-deployment.md`),
+* package layout, repository and release process (`packaging-and-release.md`).
 
 Consult the relevant document before changing an established technical strategy.
 
@@ -389,10 +392,31 @@ GitHub Actions workflows are under:
 ```text
 .github/workflows/
 ├── ci.yml
-└── codeql.yml
+├── codeql.yml
+└── release.yml
 ```
 
-Start with `ci.yml` when changing build, test, integration-test, or repository quality-gate behavior.
+Start with `ci.yml` when changing build, test, integration-test, or repository quality-gate behavior. `release.yml` builds, signs and publishes releases (see [`packaging-and-release.md`](packaging-and-release.md)).
+
+## Packaging and deployment
+
+```text
+deploy/
+├── serval-common.sh          Shared validation and service-lifecycle rules (POSIX sh)
+├── install-identity.sh       Source-install identity setup (sources serval-common.sh)
+├── validate-web-identity.sh
+├── pam.d/serval, systemd/    PAM policy and units installed by the package
+packaging/
+├── build-deb.sh              Builds the self-contained .deb for one architecture
+├── debian/                   control scripts, debconf templates, copyright, lintian overrides
+├── serval-setup, serval-setup.8   Root-only listener, TLS and admin-group command
+├── build-apt-repo.sh         Signed APT repository from all released .deb files
+├── stamp-install-script.sh, install.sh   Bootstrap script and its stamping
+├── assemble-site.sh          Repository + keyring + install.sh for GitHub Pages
+└── tools.Dockerfile          Build and lint tool image
+tests/packaging/              Shell checks, package lifecycle, repository and install.sh tests
+src/Serval.Web/Listener/      Web listener: web.json parser, protected-file reader, Kestrel setup
+```
 
 ## Where to start
 

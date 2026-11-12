@@ -1,0 +1,47 @@
+#!/bin/sh
+set -eu
+
+case "$1" in
+    remove)
+        # The unit files are gone; mask the names so dangling enablement links are not used. postinst
+        # unmasks them again on a reinstall.
+        if command -v deb-systemd-helper > /dev/null 2>&1; then
+            deb-systemd-helper mask serval-agent.service serval-web.service > /dev/null || true
+        fi
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload || true
+        fi
+        ;;
+    purge)
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload || true
+        fi
+        if command -v deb-systemd-helper > /dev/null 2>&1; then
+            deb-systemd-helper purge serval-agent.service serval-web.service > /dev/null || true
+            deb-systemd-helper unmask serval-agent.service serval-web.service > /dev/null || true
+        fi
+        for serval_dir in /etc/serval /var/lib/serval-web; do
+            if [ -L "$serval_dir" ]; then
+                echo "Not removing $serval_dir: it is a symbolic link." >&2
+            else
+                rm -rf -- "$serval_dir"
+            fi
+        done
+        rm -f -- /etc/pam.d/serval
+        if [ -e /usr/share/debconf/confmodule ]; then
+            set +u
+            # shellcheck source=/dev/null
+            . /usr/share/debconf/confmodule
+            db_purge || true
+            db_stop || true
+            set -u
+        fi
+        if [ -d /var/lib/serval ]; then
+            echo 'Serval purge kept /var/lib/serval (policy database, audit history and upgrade backups, root-only)' >&2
+            echo 'and the serval-web account. Remove them yourself if you no longer need them.' >&2
+        fi
+        ;;
+    *) ;;
+esac
+
+exit 0

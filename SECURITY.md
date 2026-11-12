@@ -4,9 +4,11 @@ Serval is designed as security-sensitive Linux administration software. We appre
 
 ## Supported versions
 
-Serval has no supported release yet. The default branch receives security fixes during development, but the bootstrap is not suitable for production deployment.
+Serval has not published a release yet. The default branch receives security fixes during development, but the repository itself is not a production deployment.
 
-Once releases are available, this section will identify the versions receiving security updates.
+Once releases exist, only the **latest released version** receives security fixes. Releases are Debian packages (`serval`) for Debian 13 and Ubuntu 22.04, 24.04 and 26.04 on `amd64` and `arm64`, distributed through the signed APT repository described in [docs/packaging-and-release.md](docs/packaging-and-release.md). Update with `apt-get update && apt-get upgrade`.
+
+The package bundles the .NET runtime, so a runtime security fix reaches hosts only through a new Serval release. Dependency and SDK updates are tracked weekly, and a security-relevant update is released as a new patch version. The runtime version of an installation is shown by `dpkg -s serval` (`Serval-Dotnet-Runtime`).
 
 ## Reporting a vulnerability
 
@@ -42,6 +44,16 @@ single-value disclosure requires both `Environment.View` and `Environment.Reveal
 The Agent authorizes before acquisition, rechecks current identity, grants and
 protection after acquisition, and records value-free audit metadata before release.
 Ordinary service inspection never acquires environment values.
+
+### Web listener
+
+In `Production`, `Serval.Web` reads its listener only from `/etc/serval/web.json`
+(root-owned, group `serval-web`, not writable by group or others, not a symbolic
+link) and ignores environment variables, command-line URLs and application
+settings. It listens on `127.0.0.1:9080` over HTTP by default. Plain HTTP on a
+non-loopback address is refused at startup; a network listener needs a
+certificate and key from `/etc/serval/tls/` and then sends HSTS. Startup
+errors never include key material.
 
 Each reveal makes a fresh supported-declarations read. Only the requested value
 crosses IPC in a disposable payload with redacted ordinary serialization and

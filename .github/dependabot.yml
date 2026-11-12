@@ -23,3 +23,17 @@ updates:
     labels:
       - dependencies
       - github-actions
+
+  # The packages bundle the .NET runtime of the SDK pinned in global.json, so SDK servicing
+  # updates arrive as pull requests. See docs/packaging-and-release.md (servicing releases).
+  - package-ecosystem: dotnet-sdk
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '05:00'
+      timezone: Europe/Warsaw
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - dotnet

@@ -1,0 +1,10 @@
+Template: serval/admin-group
+Type: string
+Default: sudo
+Description: Host administration group for Serval:
+ Members of this existing local group can administer Serval grants and, on
+ non-protected services, view and reveal service environment values. Choose a
+ group that already represents your host administrators.
+ .
+ The group must exist and must not be root's group. You can change it later
+ with "dpkg-reconfigure serval" or "serval-setup admin-group".

@@ -1,0 +1,63 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Serval
+Source: https://github.com/AdamJachocki/Serval
+
+Files: *
+Copyright: 2026 Adam Jachocki <ajachocki@gmail.com>
+License: Apache-2.0
+
+Files: opt/serval/*
+Copyright: Microsoft Corporation and the .NET Foundation
+License: MIT
+Comment: The self-contained builds bundle the .NET runtime, ASP.NET Core and
+ Microsoft.Data.Sqlite (all MIT).
+
+Files: opt/serval/*/Tmds.DBus.Protocol.dll
+Copyright: Tom Deseyn
+License: MIT
+
+Files: opt/serval/*/SQLitePCLRaw.*
+Copyright: 2014-2025 SourceGear, LLC
+License: Apache-2.0
+Comment: SQLitePCLRaw binds the SQLite engine (e_sqlite3). SQLite itself is in
+ the public domain.
+
+Files: opt/serval/web/wwwroot/lib/bootstrap/*
+Copyright: 2011-2021 Twitter, Inc.
+ 2011-2021 The Bootstrap Authors
+License: MIT
+
+Files: opt/serval/web/wwwroot/lib/jquery/*
+Copyright: OpenJS Foundation and other contributors
+License: MIT
+
+Files: opt/serval/web/wwwroot/lib/jquery-validation/*
+Copyright: Jörn Zaefferer
+License: MIT
+
+Files: opt/serval/web/wwwroot/lib/jquery-validation-unobtrusive/*
+Copyright: .NET Foundation and Contributors
+License: MIT
+
+License: Apache-2.0
+ On Debian systems, the full text of the Apache License, Version 2.0 can be
+ found in /usr/share/common-licenses/Apache-2.0.
+
+License: MIT
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to deal
+ in the Software without restriction, including without limitation the rights
+ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+ .
+ The above copyright notice and this permission notice shall be included in
+ all copies or substantial portions of the Software.
+ .
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ SOFTWARE.

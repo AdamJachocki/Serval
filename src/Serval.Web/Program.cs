@@ -1,10 +1,28 @@
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
 using Serval.Web;
+using Serval.Web.Listener;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
+
+// Production listens only as /etc/serval/web.json (or the loopback default) says; Development and
+// Testing keep the host's own configuration.
+WebListenerSettings? listener = null;
+if (builder.Environment.IsProduction())
+{
+    try
+    {
+        listener = WebListener.LoadProduction();
+        WebListener.ConfigureKestrel(builder, listener);
+    }
+    catch (WebListenerException exception)
+    {
+        await Console.Error.WriteLineAsync($"Serval.Web refuses to start: {exception.Message}");
+        return 1;
+    }
+}
 
 // Add services to the container.
 builder.Services.AddRazorPages(options =>
@@ -34,11 +52,9 @@ var app = builder.Build();
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error");
-    // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
-    app.UseHsts();
 }
 
-app.UseHttpsRedirection();
+WebListener.UseTransportSecurity(app, listener, app.Environment.IsDevelopment());
 
 app.UseRouting();
 
@@ -49,5 +65,6 @@ app.MapRazorPages()
    .WithStaticAssets();
 
 await app.RunAsync();
+return 0;
 
 public partial class Program;

@@ -1,0 +1,108 @@
+.TH SERVAL-SETUP 8 "" "Serval" "System Administration"
+.SH NAME
+serval-setup \- configure Serval's web listener, TLS certificate and host-admin group
+.SH SYNOPSIS
+.B serval-setup status
+.br
+.B serval-setup admin-group
+.I group
+.br
+.B serval-setup listen \-\-loopback
+.RB [ \-\-port
+.IR port ]
+.br
+.B serval-setup listen \-\-address
+.I ip
+.RB [ \-\-port
+.IR port ]
+.B \-\-tls self-signed \-\-hostname
+.I name[,name...]
+.br
+.B serval-setup listen \-\-address
+.I ip
+.RB [ \-\-port
+.IR port ]
+.B \-\-tls custom \-\-certificate
+.I file
+.B \-\-key
+.I file
+.SH DESCRIPTION
+.B serval-setup
+is a local administration tool that only root can run. It is not reachable through
+the Serval web application or the Agent socket, and it never passes an argument to a shell.
+.PP
+After installation Serval's web application listens only on
+.B http://127.0.0.1:9080
+(reach it through an SSH tunnel). Exposing it to the network is a deliberate step:
+any non-loopback address requires TLS.
+.SH COMMANDS
+.TP
+.B status
+Print the listener, TLS mode, certificate subject names, expiry and SHA-256 fingerprint,
+the host-admin group and the state of both services. Private key material is never printed.
+.TP
+.BI admin-group " group"
+Change the host-admin group. The group must exist, must match Serval's group name grammar
+and must not have GID 0. The Agent configuration is rewritten atomically (other settings such as
+.B idleMinutes
+are kept) and the Agent and then the web application are restarted.
+.TP
+.B listen
+Set the web listener. A literal IPv4 or IPv6 address and a port from 1024 to 65535 are required
+because the web application runs without privileges. The web application is restarted. If it does
+not become active, the previous files are restored, it is restarted again and the command fails.
+.SH LISTEN OPTIONS
+.TP
+.B \-\-loopback
+Return to the default: loopback only, plain HTTP, TLS files removed. Only
+.B \-\-port
+may be combined with it.
+.TP
+.BI \-\-address " ip"
+Address to listen on, for example
+.B 0.0.0.0
+or
+.BR :: .
+.TP
+.BI \-\-port " port"
+Port, 1024 to 65535. Defaults to 9443 with TLS and 9080 without.
+.TP
+.BI \-\-tls " self-signed" | custom
+.B self-signed
+generates an ECDSA P-256 certificate valid for 365 days for the names given with
+.BR \-\-hostname ;
+the SHA-256 fingerprint is printed so that it can be verified out of band.
+.B custom
+validates and copies an operator certificate chain and unencrypted private key.
+.TP
+.BI \-\-hostname " names"
+Comma-separated DNS names or IP addresses (at most 10) for the certificate.
+.TP
+.BI \-\-certificate " file" ", " \-\-key " file"
+PEM certificate chain and matching unencrypted key. Both must be regular files given by an absolute path
+without symbolic links, and the certificate must not be expired.
+.SH FILES
+.TP
+.I /etc/serval/web.json
+Listener settings (root:serval-web, mode 0640).
+.TP
+.I /etc/serval/tls/cert.pem
+Certificate (root, mode 0644).
+.TP
+.I /etc/serval/tls/key.pem
+Private key (root:serval-web, mode 0640).
+.TP
+.I /etc/serval/agent.json
+Agent configuration including the host-admin group (root, mode 0600).
+.SH EXAMPLES
+.nf
+serval-setup listen \-\-address 0.0.0.0 \-\-port 8443 \-\-tls self-signed \-\-hostname admin.example.test
+serval-setup listen \-\-address 192.0.2.10 \-\-tls custom \-\-certificate /root/serval.pem \-\-key /root/serval.key
+serval-setup listen \-\-loopback
+serval-setup admin-group serval-admins
+.fi
+.SH EXIT STATUS
+Zero on success; non-zero when the arguments are invalid, a validation fails or a change had to be rolled back.
+Invalid arguments change nothing.
+.SH SEE ALSO
+.BR dpkg-reconfigure (8)

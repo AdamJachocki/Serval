@@ -1,0 +1,106 @@
+#!/bin/sh
+set -e
+
+# Older debconf (Ubuntu 22.04) reads unset variables, so -u is enabled only after sourcing it.
+# shellcheck source=/dev/null
+. /usr/share/debconf/confmodule
+set -u
+# shellcheck source=deploy/serval-common.sh
+. /usr/lib/serval/serval-common.sh
+
+# SHA-256 of the unit files that deploy/install-identity.sh wrote to /etc/systemd/system.
+serval_old_unit_hash() {
+    case $1 in
+        serval-agent.service) echo 7185406b1e1b7651481e542c26e596116f9340ba5a0a3b3a20b73dad3d6c976f ;;
+        serval-web.service) echo b8aeab16af8647e14dd729ce6bcc172bd9cc9006d0a063507116270a1064a730 ;;
+    esac
+}
+
+# The units now live in the vendor directory. An unchanged copy from the source installer would
+# shadow them and is removed; anything else is an administrator's file and stops the installation.
+serval_remove_old_unit_copies() {
+    for serval_unit in serval-agent.service serval-web.service; do
+        serval_copy=/etc/systemd/system/$serval_unit
+        [ -e "$serval_copy" ] || [ -L "$serval_copy" ] || continue
+        if [ -f "$serval_copy" ] && [ ! -L "$serval_copy" ] &&
+            [ "$(sha256sum < "$serval_copy" | cut -d' ' -f1)" = "$(serval_old_unit_hash "$serval_unit")" ]; then
+            rm -f -- "$serval_copy"
+            rm -f -- "/etc/systemd/system/multi-user.target.wants/$serval_unit"
+        else
+            serval_die "$serval_copy differs from the packaged unit and would override it. Move your changes into /etc/systemd/system/$serval_unit.d/override.conf and remove the file, then run: dpkg --configure serval"
+        fi
+    done
+}
+
+serval_enabled() {
+    deb-systemd-helper --quiet was-enabled "$1"
+}
+
+case "$1" in
+    configure)
+        serval_reject_symlinks /etc/serval /var/lib/serval /etc/pam.d/serval \
+            /etc/serval/agent.json /var/lib/serval/policy.db
+        if ! getent passwd serval-web > /dev/null; then
+            adduser --system --group --no-create-home --home /nonexistent \
+                --shell /usr/sbin/nologin --quiet serval-web
+        fi
+        serval_validate_web_identity
+        install -d -o root -g root -m 0755 /etc/serval
+        install -d -o root -g root -m 0700 /var/lib/serval
+        # A removed (not purged) package left the unit names masked; unmask before the old-copy check
+        # below, which would otherwise take the mask symlink for an administrator's unit file.
+        for serval_unit in serval-agent.service serval-web.service; do
+            deb-systemd-helper unmask "$serval_unit" > /dev/null || true
+        done
+        serval_remove_old_unit_copies
+        if [ ! -e /etc/serval/agent.json ]; then
+            db_get serval/admin-group
+            serval_validate_admin_group "$RET"
+            serval_write_agent_config /etc/serval/agent.json \
+                "$SERVAL_WEB_UID" "$SERVAL_WEB_GID" "$SERVAL_ADMIN_GROUP" "$SERVAL_ADMIN_GID"
+        elif [ "${DEBCONF_RECONFIGURE:-}" = 1 ]; then
+            # dpkg-reconfigure runs "configure" with this variable set; an upgrade never does, so an
+            # upgrade keeps agent.json while a reconfiguration applies the answer through the same
+            # code path as "serval-setup admin-group".
+            db_get serval/admin-group
+            if [ "$(jq -r '.adminGroup // empty' /etc/serval/agent.json 2> /dev/null || true)" != "$RET" ]; then
+                serval_apply_admin_group "$RET"
+            fi
+        fi
+        # The package carries the repository keyring when it was built for release. Hosts set up by
+        # install.sh hold a copy at the keyrings path that no package owns; refresh it so an extended
+        # key expiry or a rollover key reaches the host through a normal upgrade. A host without that
+        # copy was not set up from the repository and gets nothing.
+        serval_keyring_source=/usr/share/serval/serval-archive-keyring.gpg
+        serval_keyring_copy=/usr/share/keyrings/serval-archive-keyring.gpg
+        if [ -f "$serval_keyring_source" ] && [ ! -L "$serval_keyring_source" ] &&
+            [ -f "$serval_keyring_copy" ] && [ ! -L "$serval_keyring_copy" ]; then
+            serval_atomic_write "$serval_keyring_copy" 0644 root:root < "$serval_keyring_source"
+        fi
+        if serval_have_systemd; then
+            systemctl daemon-reload
+        fi
+        for serval_unit in serval-agent.service serval-web.service; do
+            # was-enabled defaults to true, so a new installation enables the unit while an
+            # administrator's earlier "systemctl disable" survives upgrades.
+            if serval_enabled "$serval_unit"; then
+                deb-systemd-helper enable "$serval_unit" > /dev/null
+            else
+                deb-systemd-helper update-state "$serval_unit" > /dev/null
+            fi
+        done
+        if serval_enabled serval-agent.service && serval_enabled serval-web.service; then
+            serval_start_services
+        fi
+        ;;
+    abort-upgrade | abort-remove | abort-deconfigure)
+        # The upgrade or removal failed: bring the previous version back up.
+        if serval_enabled serval-agent.service && serval_enabled serval-web.service; then
+            serval_start_services
+        fi
+        ;;
+    *) ;;
+esac
+
+db_stop || true
+exit 0

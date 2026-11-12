@@ -1,0 +1,240 @@
+name: Release
+
+# A tag vX.Y.Z builds the packages, attaches them to a GitHub Release and publishes the signed APT
+# repository, the keyring and install.sh to GitHub Pages. Signing happens only in the `publish` job,
+# which runs in the protected `release` environment (maintainer approval required); the signing key is
+# environment secrets (APT_GPG_PRIVATE_KEY and, for a protected key, APT_GPG_PASSPHRASE), so no other
+# job or workflow can read them.
+#
+# Run manually (workflow_dispatch) for a dry run: it builds the packages and a repository signed with a
+# throwaway key, publishes nothing and has no access to the release environment.
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version for the dry run (for example 0.0.0)'
+        required: true
+        default: '0.0.0'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build package (${{ matrix.arch }})
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Require a tag on main
+        if: github.event_name == 'push'
+        run: |
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "::error::$GITHUB_REF_NAME is not on main."; exit 1; }
+
+      - name: Build the packaging tool image
+        run: docker build --file packaging/tools.Dockerfile --tag serval-pkg-tools .
+
+      # A release ships the repository's public keyring (committed in the repository), so hosts refresh
+      # their keyring through normal upgrades. Dry runs build without it.
+      - name: Build the package
+        env:
+          VERSION: ${{ github.event_name == 'push' && github.ref_name || format('v{0}', inputs.version) }}
+        run: |
+          export keyring=''
+          if [[ $GITHUB_EVENT_NAME == push ]]; then
+            [[ -s packaging/release-keyring/serval-archive-keyring.gpg ]] ||
+              { echo '::error::packaging/release-keyring/serval-archive-keyring.gpg is missing; commit the release public key first.'; exit 1; }
+            keyring=/src/packaging/release-keyring/serval-archive-keyring.gpg
+          fi
+          docker run --rm --volume "$PWD:/src" --workdir /src --env VERSION --env keyring serval-pkg-tools \
+            bash -c 'bash packaging/build-deb.sh --version "$VERSION" --arch ${{ matrix.arch }} --output /src/artifacts/packages ${keyring:+--keyring "$keyring"}'
+
+      - name: Lint the package
+        run: |
+          docker run --rm --volume "$PWD/artifacts/packages:/packages:ro" serval-pkg-tools bash -c '
+            set -e
+            for deb in /packages/*.deb; do lintian --no-cfg --fail-on error,warning "$deb"; done'
+
+      - name: Upload the package
+        uses: actions/upload-artifact@v5
+        with:
+          name: release-packages-${{ matrix.arch }}
+          path: artifacts/packages/*.deb
+          if-no-files-found: error
+          retention-days: 7
+
+  dry-run:
+    name: Dry run (throwaway key, nothing published)
+    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Download the packages
+        uses: actions/download-artifact@v5
+        with:
+          pattern: release-packages-*
+          merge-multiple: true
+          path: artifacts/packages
+
+      - name: Install repository tools
+        run: sudo apt-get install -y --no-install-recommends apt-utils gnupg
+
+      - name: Assemble the site with a throwaway key
+        run: |
+          export GNUPGHOME="$RUNNER_TEMP/dry-run-gnupg"
+          mkdir -m 0700 "$GNUPGHOME"
+          gpg --batch --passphrase '' --quick-generate-key 'dry run <dry-run@example.invalid>' rsa2048 sign never
+          key=$(gpg --batch --list-keys --with-colons dry-run@example.invalid | awk -F: '/^fpr/ { print $10; exit }')
+          bash packaging/assemble-site.sh --packages artifacts/packages --key "$key" \
+            --base-url https://example.invalid/serval --output "$RUNNER_TEMP/site"
+          find "$RUNNER_TEMP/site" -type f | head -50
+
+      - name: Upload the dry-run site
+        uses: actions/upload-artifact@v5
+        with:
+          name: dry-run-site
+          path: ${{ runner.temp }}/site
+          include-hidden-files: true
+          retention-days: 3
+
+  publish:
+    name: Sign and publish
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-24.04
+    environment: release
+    timeout-minutes: 20
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Download the new packages
+        uses: actions/download-artifact@v5
+        with:
+          pattern: release-packages-*
+          merge-multiple: true
+          path: new-packages
+
+      - name: Install repository tools
+        run: sudo apt-get install -y --no-install-recommends apt-utils gnupg
+
+      - name: Collect the packages of all earlier releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          mkdir -p all-packages
+          gh release list --limit 1000 --exclude-pre-releases --json tagName --jq '.[].tagName' |
+            while read -r tag; do
+              [[ $tag == "$TAG" ]] && continue
+              # Releases without package assets (for example notes-only ones) are skipped.
+              assets=$(gh release view "$tag" --json assets --jq '.assets[].name')
+              if grep -q '^serval_.*\.deb$' <<< "$assets"; then
+                gh release download "$tag" --pattern 'serval_*.deb' --dir all-packages
+              fi
+            done
+          cp -f new-packages/*.deb all-packages/
+          find all-packages -name "*.deb" -print
+
+      - name: Import the release signing key
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+        run: |
+          [[ -n $APT_GPG_PRIVATE_KEY ]] || { echo '::error::The release signing key (APT_GPG_PRIVATE_KEY) is not configured in the release environment.'; exit 1; }
+          mkdir -m 0700 "$RUNNER_TEMP/gnupg"
+          printf '%s' "$APT_GPG_PRIVATE_KEY" | GNUPGHOME="$RUNNER_TEMP/gnupg" gpg --batch --import
+          if [[ -n $APT_GPG_PASSPHRASE ]]; then
+            (umask 077; printf '%s' "$APT_GPG_PASSPHRASE" > "$RUNNER_TEMP/gpg-passphrase")
+            echo "SERVAL_GPG_PASSPHRASE_FILE=$RUNNER_TEMP/gpg-passphrase" >> "$GITHUB_ENV"
+          fi
+          fingerprint=$(GNUPGHOME="$RUNNER_TEMP/gnupg" gpg --batch --list-secret-keys --with-colons | awk -F: '/^fpr/ { print $10; exit }')
+          [[ -n $fingerprint ]] || { echo '::error::No secret key was imported.'; exit 1; }
+          echo "SIGNING_FINGERPRINT=$fingerprint" >> "$GITHUB_ENV"
+
+      - name: Assemble the signed site
+        env:
+          GNUPGHOME: ${{ runner.temp }}/gnupg
+          SITE_URL_OVERRIDE: ${{ vars.SERVAL_SITE_URL }}
+        run: |
+          if [[ -n $SITE_URL_OVERRIDE ]]; then
+            site_url=$SITE_URL_OVERRIDE
+          else
+            owner=${GITHUB_REPOSITORY_OWNER,,}
+            site_url="https://$owner.github.io/${GITHUB_REPOSITORY#*/}"
+          fi
+          bash packaging/assemble-site.sh --packages all-packages --key "$SIGNING_FINGERPRINT" \
+            --keyring packaging/release-keyring/serval-archive-keyring.gpg \
+            --base-url "$site_url" --output "$RUNNER_TEMP/site" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove the signing key from the runner
+        if: always()
+        run: |
+          GNUPGHOME="$RUNNER_TEMP/gnupg" gpgconf --kill gpg-agent || true
+          rm -rf "$RUNNER_TEMP/gnupg"
+          rm -f "$RUNNER_TEMP/gpg-passphrase"
+
+      - name: Create or update the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cd new-packages
+          sha256sum serval_*.deb > SHA256SUMS
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" --clobber serval_*.deb SHA256SUMS
+          else
+            gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes serval_*.deb SHA256SUMS
+          fi
+
+      - name: Upload the site for GitHub Pages
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: ${{ runner.temp }}/site
+
+  deploy-pages:
+    name: Deploy to GitHub Pages
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

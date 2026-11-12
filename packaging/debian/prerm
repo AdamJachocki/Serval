@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+
+case "$1" in
+    remove | deconfigure)
+        if [ -r /usr/lib/serval/serval-common.sh ]; then
+            # shellcheck source=deploy/serval-common.sh
+            . /usr/lib/serval/serval-common.sh
+            # Only stop. The enablement state stays with deb-systemd-helper, so a later reinstall
+            # (without purge) enables the units again, and a unit an administrator disabled stays disabled.
+            serval_stop_services
+        fi
+        ;;
+    *) ;;
+esac
+
+exit 0
