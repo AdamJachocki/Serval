@@ -248,3 +248,96 @@ jobs:
       - name: Stop Debian 13 systemd fixture
         if: always()
         run: docker rm --force serval-debian-systemd || true
+
+  package-build:
+    name: Debian package build (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Build the packaging tool image
+        run: docker build --file packaging/tools.Dockerfile --tag serval-pkg-tools .
+
+      - name: Shellcheck and shell unit tests
+        if: matrix.arch == 'amd64'
+        run: docker run --rm --volume "$PWD:/src:ro" --workdir /src serval-pkg-tools bash tests/packaging/run-shell-checks.sh
+
+      # Two versions are built so the upgrade scenarios have a lower version to start from.
+      - name: Build the packages
+        run: |
+          docker run --rm --volume "$PWD:/src" --workdir /src serval-pkg-tools bash -c '
+            set -e
+            for version in 0.1.0 0.2.0; do
+              bash packaging/build-deb.sh --version "$version" --arch ${{ matrix.arch }} --output /src/artifacts/packages
+            done'
+
+      - name: Lint the packages
+        run: |
+          docker run --rm --volume "$PWD/artifacts/packages:/packages:ro" serval-pkg-tools bash -c '
+            set -e
+            for deb in /packages/*.deb; do
+              lintian --no-cfg --fail-on error,warning "$deb"
+            done'
+
+      - name: Upload the packages
+        uses: actions/upload-artifact@v5
+        with:
+          name: packages-${{ matrix.arch }}
+          path: artifacts/packages/*.deb
+          if-no-files-found: error
+          retention-days: 7
+
+  package-tests:
+    name: Package lifecycle (${{ matrix.name }} ${{ matrix.arch }})
+    needs: package-build
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        image: ['debian:13-slim', 'ubuntu:22.04', 'ubuntu:24.04', 'ubuntu:26.04']
+        include:
+          - { image: 'debian:13-slim', name: Debian 13 }
+          - { image: 'ubuntu:22.04', name: Ubuntu 22.04 }
+          - { image: 'ubuntu:24.04', name: Ubuntu 24.04 }
+          - { image: 'ubuntu:26.04', name: Ubuntu 26.04 }
+          - { arch: amd64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
+
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Download the packages
+        uses: actions/download-artifact@v5
+        with:
+          name: packages-${{ matrix.arch }}
+          path: artifacts/packages
+
+      - name: Run the package lifecycle tests on real systemd
+        run: bash tests/packaging/run-package-tests.sh "${{ matrix.image }}" artifacts/packages/serval_0.2.0_${{ matrix.arch }}.deb artifacts/packages/serval_0.1.0_${{ matrix.arch }}.deb
+
+      - name: Verify the signed APT repository
+        run: bash tests/packaging/run-apt-repository-test.sh "${{ matrix.image }}" artifacts/packages
+
+      - name: Verify install.sh against a local signed repository
+        run: bash tests/packaging/run-install-script-test.sh "${{ matrix.image }}" artifacts/packages
+
+      - name: Verify the published-style flow end to end
+        env:
+          PACKAGE_TEST_SCRIPT: e2e-test.sh
+        run: bash tests/packaging/run-package-tests.sh "${{ matrix.image }}" artifacts/packages/serval_0.2.0_${{ matrix.arch }}.deb artifacts/packages/serval_0.1.0_${{ matrix.arch }}.deb

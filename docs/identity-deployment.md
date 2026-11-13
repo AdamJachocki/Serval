@@ -5,7 +5,131 @@ as `serval-web`; the root Agent owns authentication, sessions, grant decisions
 and audit. The installation script and unit files in `deploy/` are the
 repository's deployment configuration for this boundary.
 
-## Install and configure
+## Install the package
+
+The `serval` Debian package is the supported way to install Serval on Debian 13
+and Ubuntu 22.04, 24.04 and 26.04 (`amd64` and `arm64`). It bundles the .NET
+runtime, so the host needs no .NET installation. Download the `.deb` for the
+host's architecture from the GitHub Release (verify it against the attached
+SHA-256 checksum) and install it as root:
+
+```bash
+apt-get install ./serval_<version>_<arch>.deb
+```
+
+Once releases are published, the signed APT repository is the simpler route:
+`curl -fsSL https://adamjachocki.github.io/Serval/install.sh | sudo sh` adds
+the repository and installs the package (see
+[packaging-and-release.md](packaging-and-release.md)); later updates arrive
+with `apt-get upgrade`. `install.sh` runs without prompts, so the host-admin
+group is `sudo` unless you preseed it first (below) or change it afterwards
+with `serval-setup admin-group`. To set up the repository by hand instead, see
+"Manual repository setup" in [packaging-and-release.md](packaging-and-release.md).
+
+Installation asks one debconf question, the host-admin group (default `sudo`).
+For unattended installs preseed it before installing:
+
+```bash
+echo 'serval serval/admin-group string sudo' | debconf-set-selections
+DEBIAN_FRONTEND=noninteractive apt-get install ./serval_<version>_<arch>.deb
+```
+
+The group must already exist, match the name grammar in `Serval.Agent` and not
+be root's group; otherwise installation fails and neither service is started.
+The package creates the `serval-web` account, installs the PAM policy and both
+units (under `/usr/lib/systemd/system`), writes `/etc/serval/agent.json`,
+enables both units and starts the Agent and then the Web application. It
+refuses to install over an unsafe pre-existing `serval-web` account or a
+symbolic link at `/etc/serval`, `/var/lib/serval` or `/etc/pam.d/serval`.
+
+After installation Web listens only on `http://127.0.0.1:9080`. Nothing is
+reachable from the network until you decide so with `serval-setup`.
+
+### Reach the UI through an SSH tunnel
+
+The default listener is plain HTTP on loopback. From your workstation:
+
+```bash
+ssh -L 9080:127.0.0.1:9080 admin@server.example
+```
+
+then open `http://localhost:9080` in Chromium or Firefox, which treat
+`localhost` as a secure context and therefore accept Serval's `Secure` session
+cookie. Some Safari versions do not; use HTTPS (below) there.
+
+### Expose Web on the network with TLS
+
+`serval-setup` is a local, root-only command (see `serval-setup(8)`). A
+non-loopback address always requires TLS; Web refuses to start otherwise.
+
+```bash
+serval-setup listen --address 0.0.0.0 --port 8443 --tls self-signed --hostname admin.example.test
+serval-setup listen --address 192.0.2.10 --port 8443 --tls custom --certificate /root/serval.pem --key /root/serval.key
+serval-setup listen --loopback
+serval-setup status
+```
+
+- `--tls self-signed` generates an ECDSA P-256 certificate valid for 365 days
+  for the comma-separated `--hostname` names (DNS names or IP addresses). The
+  command prints the certificate's SHA-256 fingerprint. Compare it with what
+  your browser shows before accepting the certificate, over a channel you
+  trust. Run the command again to renew the certificate; there is no automatic
+  renewal.
+- `--tls custom` takes a PEM certificate chain and an unencrypted private key
+  as regular files given by absolute paths without symbolic links. The
+  certificate must not be expired and must match the key. Both are copied into
+  `/etc/serval/tls/`; the key is readable only by root and the `serval-web`
+  group.
+- Ports are 1024 through 65535 because Web runs without privilege to bind lower
+  ports. Put a firewall or reverse proxy in front of the port if you need 443.
+- Web is restarted after each change. If it does not start (for example the
+  port is in use), the previous files are restored, Web is restarted with them
+  and the command exits non-zero.
+- `serval-setup listen --loopback` returns to loopback HTTP and removes the TLS
+  files.
+
+### Change the host-admin group
+
+```bash
+serval-setup admin-group serval-admins
+```
+
+The group is validated like at installation, `agent.json` is rewritten
+atomically (other fields such as `idleMinutes` are kept) and the Agent and Web
+are restarted. Members of the previous group lose grant administration;
+members of the new group gain it. Existing sessions end with the restart.
+`dpkg-reconfigure serval` does the same through the same code path.
+
+### Upgrade, remove and purge
+
+`apt-get install ./serval_<new-version>_<arch>.deb` (or `apt-get upgrade` once
+a repository is configured) stops Web and then the Agent, copies `policy.db`
+and any SQLite companion files to a root-only
+`/var/lib/serval/backups/<previous-version>-<UTC timestamp>/` (the five newest
+are kept), unpacks the new version and starts the Agent and then Web. If the
+backup fails, the upgrade is aborted before any binary changes. If the Agent
+fails its startup checks, Web is not started and the backup stays available.
+`agent.json`, `web.json` and the TLS files are never overwritten.
+
+To roll back, stop both services, copy the files from the backup directory
+over `/var/lib/serval`, keeping owner root and mode `0600`, and install the
+previous version with `apt-get install serval=<version>`.
+
+`apt-get remove serval` stops both services and removes the binaries and
+units; installing again enables and starts them. `apt-get purge serval` also removes `/etc/serval`, the PAM
+policy and Web's state directory, but keeps `/var/lib/serval` (grants, audit
+history and backups), which remain root-only, and the `serval-web` account.
+Audit retention is an operator decision, so delete those yourself when you no
+longer need them.
+
+A host previously installed with `deploy/install-identity.sh` can install the
+package over it: an unchanged copy of the old units in `/etc/systemd/system` is
+removed so the packaged units apply, an existing `agent.json` is kept and the
+database is backed up first. A modified unit copy stops the installation; move
+your changes into a drop-in under `/etc/systemd/system/<unit>.d/` and remove
+the copy.
+
+## Install from source
 
 From the repository root on a supported Linux host, publish the Agent and Web
 for that host's architecture, install their executable outputs under
@@ -34,6 +158,13 @@ before `serval-web.service`; the Web unit depends on the Agent.
 | `/run/serval/agent.sock` | Agent-created, accessible to Web | Local typed IPC |
 | `/var/lib/serval/policy.db` | root, `0600` | SQLite grants, favorites and audit |
 | `/var/lib/serval-web/keys` | `serval-web` within its `0700` state directory | ASP.NET Core anti-forgery keys |
+| `/etc/serval/web.json` | root:`serval-web`, `0640` (must not be writable by group or others, not a symlink) | Optional Web listener: `{"address", "port", "tls": {"certificate", "key"} \| null}` |
+| `/etc/serval/tls/` | root:`serval-web`, `0750` | TLS files; `cert.pem` root `0644`, `key.pem` root:`serval-web` `0640` (no access for others) |
+
+Without `web.json`, Web listens on `127.0.0.1:9080` over HTTP. The reader
+accepts only the fields shown, a literal IPv4 or IPv6 address, a port from 1024
+through 65535, and TLS files located directly in `/etc/serval/tls/`. A
+non-loopback address without `tls` makes Web refuse to start.
 
 The Agent refuses startup on missing or unsafe configuration, PAM file,
 runtime directory, policy location, Web identity or admin group. The Web account

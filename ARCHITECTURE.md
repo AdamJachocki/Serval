@@ -103,6 +103,14 @@ It hosts the UI and executes unprivileged application behavior.
 
 Privileged operating-system operations must not be implemented directly in this process.
 
+In the `Production` environment Web listens on exactly one endpoint taken from
+the root-owned `/etc/serval/web.json`, or `127.0.0.1:9080` over plain HTTP when
+the file is absent. `ASPNETCORE_URLS`, `--urls` and the `Kestrel` configuration
+section are ignored. A non-loopback address requires TLS, with the certificate
+and key loaded only from `/etc/serval/tls/`; Web refuses to start otherwise.
+HTTPS redirection and HSTS are enabled only when TLS is configured.
+`Development` and `Testing` keep their own listener configuration.
+
 ### Serval.Agent
 
 `Serval.Agent` is the minimal privileged local process.

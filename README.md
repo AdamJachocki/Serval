@@ -6,9 +6,9 @@ narrow: manage environment variables for system-level systemd services and
 restart those services only through a separate, explicit action.
 
 > [!IMPORTANT]
-> Serval is in active development and has no supported release yet. The
-> repository contains working security boundaries and Linux integration, but
-> the deployment files are not a supported production installer or release.
+> Serval is in active development and has not published a release yet. The
+> repository contains working security boundaries and Linux integration and a
+> Debian package with a signed APT repository; the first release is not out.
 
 ## Current implementation
 
@@ -91,15 +91,35 @@ dependency graph. GitHub Actions also publishes self-contained Linux test
 artifacts and runs the disposable real-systemd matrix, including cleanup after
 an intentionally failing harness run.
 
+## Install
+
+Serval is installed as a Debian package on Debian 13 and Ubuntu 22.04, 24.04
+and 26.04 (`amd64` and `arm64`). The package bundles the .NET runtime. After the
+first release, as root:
+
+```bash
+curl -fsSL https://adamjachocki.github.io/Serval/install.sh | sudo sh
+```
+
+The script checks the host, adds the signed Serval APT repository (its keyring
+is verified against a pinned SHA-256) and installs `serval`. To do it by hand,
+download the `.deb` from the GitHub Release, verify it against `SHA256SUMS` and
+run `apt-get install ./serval_<version>_<arch>.deb`.
+
+Web listens only on `http://127.0.0.1:9080` after installation. Reach it
+through an SSH tunnel, or expose it with TLS using `serval-setup`. See
+[docs/identity-deployment.md](docs/identity-deployment.md) for the listener,
+TLS, host-admin group, upgrade and removal procedures, and
+[docs/packaging-and-release.md](docs/packaging-and-release.md) for how packages
+are built and released.
+
 ## Deployment artifacts
 
-The [deploy](deploy) directory contains the current PAM configuration, systemd
-units and identity setup script used to verify the Web/Agent trust boundary.
-The manual deployment procedure and required ownership and permissions are
-documented in [docs/identity-deployment.md](docs/identity-deployment.md).
-
-These files support development and integration testing. They do not constitute
-a versioned installer or supported release.
+The [deploy](deploy) directory contains the PAM configuration, systemd units,
+the shared deployment rules and the identity setup script used by the package
+and by source installations. The [packaging](packaging) directory contains the
+package build, the maintainer scripts, `serval-setup`, `install.sh` and the
+repository tooling.
 
 ## Repository documentation
 

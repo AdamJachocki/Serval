@@ -1,0 +1,69 @@
+#!/bin/sh
+# The shared rules are embedded at build time: on a first installation the library is not yet
+# unpacked when this script runs.
+set -eu
+
+@SERVAL_COMMON@
+
+# serval_backup_database LABEL: copies policy.db and SQLite companions into a root-only directory.
+serval_backup_database() {
+    serval_label=$(printf '%s' "$1" | tr -c 'A-Za-z0-9.+~_-' '_')
+    serval_db=/var/lib/serval/policy.db
+    [ -e "$serval_db" ] || [ -L "$serval_db" ] || return 0
+    if [ -L "$serval_db" ] || [ ! -f "$serval_db" ]; then
+        serval_die 'The Serval policy database is not a regular file.'
+    fi
+    serval_root=/var/lib/serval/backups
+    serval_dest=$serval_root/$serval_label-$(date -u +%Y%m%dT%H%M%SZ)
+    (
+        umask 077
+        mkdir -p "$serval_root" && chmod 0700 "$serval_root" && mkdir "$serval_dest"
+    ) || serval_die 'Could not create the Serval backup directory; the upgrade was aborted.'
+    for serval_name in policy.db policy.db-wal policy.db-shm; do
+        serval_src=/var/lib/serval/$serval_name
+        [ -e "$serval_src" ] || continue
+        if [ -L "$serval_src" ] || ! cp --preserve=mode,ownership -- "$serval_src" "$serval_dest/$serval_name" ||
+            ! cmp -s -- "$serval_src" "$serval_dest/$serval_name" || ! chown root:root "$serval_dest/$serval_name" ||
+            ! chmod 0600 "$serval_dest/$serval_name"; then
+            rm -rf -- "$serval_dest"
+            serval_die 'The Serval database backup failed; the upgrade was aborted.'
+        fi
+    done
+    serval_prune_backups "$serval_root"
+}
+
+# Keeps the five newest backup directories.
+serval_prune_backups() {
+    serval_kept=0
+    # Directory names are generated above and contain no whitespace.
+    # shellcheck disable=SC2012,SC2045
+    for serval_old in $(ls -1dt "$1"/*/ 2> /dev/null); do
+        serval_kept=$((serval_kept + 1))
+        if [ "$serval_kept" -gt 5 ]; then
+            case $serval_old in
+                /var/lib/serval/backups/?*) rm -rf -- "$serval_old" ;;
+            esac
+        fi
+    done
+}
+
+case "$1" in
+    install | upgrade)
+        serval_reject_symlinks /etc/serval /var/lib/serval /etc/pam.d/serval \
+            /etc/serval/agent.json /var/lib/serval/policy.db
+        if getent passwd serval-web > /dev/null; then
+            serval_validate_web_identity
+        fi
+        if [ "$1" = upgrade ]; then
+            serval_stop_services
+            serval_backup_database "${2:-unknown}"
+        elif [ -e /var/lib/serval/policy.db ]; then
+            # A source installation or a purged installation left a database behind.
+            serval_stop_services
+            serval_backup_database preinstall
+        fi
+        ;;
+    *) ;;
+esac
+
+exit 0

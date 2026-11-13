@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+
+# Older debconf (Ubuntu 22.04) reads unset variables, so -u is enabled only after sourcing it.
+# shellcheck source=/dev/null
+. /usr/share/debconf/confmodule
+set -u
+
+# "serval-setup admin-group" keeps this answer in step with agent.json, so reconfiguring starts
+# from the configured group and a preseeded answer is respected.
+db_input high serval/admin-group || true
+db_go || true

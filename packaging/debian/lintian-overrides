@@ -1,0 +1,14 @@
+# Reviewed findings that are inherent to a self-contained .NET publish (docs/packaging-and-release.md).
+# Add-on packages may use /opt (FHS 3.0); the units, documentation and tests all rely on /opt/serval.
+serval: dir-or-file-in-opt [opt/serval/*]
+# The .NET runtime bundles its own zlib; the version is pinned with the runtime and serviced by releases.
+serval: embedded-library zlib [opt/serval/*]
+# libe_sqlite3 is a vendor binary; stripping it would alter a signed upstream artifact.
+serval: unstripped-binary-or-object [opt/serval/*]
+# Static assets of the Web UI, served from the published wwwroot, not a system copy.
+serval: embedded-javascript-library * [opt/serval/web/wwwroot/*]
+# Agent must be verified active before Web starts and a failed Agent must keep Web stopped;
+# deb-systemd-invoke cannot express that ordering or report the Agent result.
+serval: maintainer-script-calls-systemctl [*]
+# Recorded for administrators (dpkg -s serval) so they can tell which runtime is bundled.
+serval: unknown-field Serval-Dotnet-Runtime

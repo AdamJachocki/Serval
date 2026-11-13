@@ -1,0 +1,484 @@
+#!/bin/sh
+# serval-setup: local, root-only administration of Serval's Web listener, TLS and host-admin group.
+# See serval-setup(8). Not reachable through Web or the Agent socket; no argument reaches a shell.
+set -eu
+umask 077
+LC_ALL=C
+export LC_ALL
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+COMMON=/usr/lib/serval/serval-common.sh
+CONFIG_DIR=/etc/serval
+WEB_CONFIG=$CONFIG_DIR/web.json
+TLS_DIR=$CONFIG_DIR/tls
+CERT_PATH=$TLS_DIR/cert.pem
+KEY_PATH=$TLS_DIR/key.pem
+
+if [ "$(id -u)" != 0 ]; then
+    echo 'serval-setup must be run as root.' >&2
+    exit 1
+fi
+# shellcheck source=deploy/serval-common.sh
+. "$COMMON"
+
+usage() {
+    cat >&2 << 'EOF'
+Usage:
+  serval-setup status
+  serval-setup admin-group <group>
+  serval-setup listen --loopback [--port <1024-65535>]
+  serval-setup listen --address <ip> [--port <1024-65535>] --tls self-signed --hostname <name[,name...]>
+  serval-setup listen --address <ip> [--port <1024-65535>] --tls custom --certificate <file> --key <file>
+  serval-setup listen --address <loopback-ip> [--port <1024-65535>]     (plain HTTP, loopback only)
+EOF
+    exit 2
+}
+
+fail() {
+    printf 'serval-setup: %s\n' "$1" >&2
+    exit 1
+}
+
+bad_usage() {
+    printf 'serval-setup: %s\n' "$1" >&2
+    usage
+}
+
+# --- input validation ------------------------------------------------------------------------
+
+# True when the value contains a space or any non-printable character (including a newline).
+has_control() {
+    case $1 in
+        *[![:print:]]* | *' '*) return 0 ;;
+    esac
+    return 1
+}
+
+is_port() {
+    case $1 in
+        '' | *[!0-9]* | 0*) return 1 ;;
+    esac
+    [ "${#1}" -le 5 ] && [ "$1" -ge 1024 ] && [ "$1" -le 65535 ]
+}
+
+is_ipv4() {
+    printf '%s\n' "$1" | awk -F. '
+        NF != 4 { exit 1 }
+        { for (i = 1; i <= 4; i++) { if ($i !~ /^(0|[1-9][0-9]?|1[0-9][0-9]|2[0-4][0-9]|25[0-5])$/) exit 1 } }'
+}
+
+is_ipv6() {
+    case $1 in
+        *[!0-9A-Fa-f:.]* | '') return 1 ;;
+    esac
+    printf '%s\n' "$1" | awk '
+        {
+            s = $0
+            if (s ~ /:::/ || s !~ /:/) exit 1
+            dbl = gsub(/::/, "::", s)
+            if (dbl > 1) exit 1
+            if ((substr(s, 1, 1) == ":" && substr(s, 1, 2) != "::") || (substr(s, length(s)) == ":" && substr(s, length(s) - 1) != "::")) exit 1
+            n = split(s, part, ":")
+            groups = 0
+            for (i = 1; i <= n; i++) {
+                if (part[i] == "") continue
+                if (part[i] ~ /\./) {
+                    if (i != n) exit 1
+                    if (split(part[i], q, ".") != 4) exit 1
+                    for (k = 1; k <= 4; k++) if (q[k] !~ /^(0|[1-9][0-9]?|1[0-9][0-9]|2[0-4][0-9]|25[0-5])$/) exit 1
+                    groups += 2
+                } else {
+                    if (length(part[i]) > 4 || part[i] !~ /^[0-9A-Fa-f]+$/) exit 1
+                    groups += 1
+                }
+            }
+            if (dbl == 1 ? groups > 7 : groups != 8) exit 1
+        }'
+}
+
+is_ip() {
+    case $1 in
+        *:*) is_ipv6 "$1" ;;
+        *) is_ipv4 "$1" ;;
+    esac
+}
+
+# Address as it appears in a URL: IPv6 literals are bracketed.
+url_host() {
+    case $1 in
+        *:*) printf '[%s]' "$1" ;;
+        *) printf '%s' "$1" ;;
+    esac
+}
+
+is_loopback() {
+    case $1 in
+        127.*) is_ipv4 "$1" ;;
+        ::1 | 0:0:0:0:0:0:0:1) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+is_dns_name() {
+    [ -n "$1" ] && [ "${#1}" -le 253 ] || return 1
+    printf '%s\n' "$1" | awk -F. '
+        { for (i = 1; i <= NF; i++) if (length($i) > 63 || $i !~ /^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$/) exit 1 }'
+}
+
+# $1 = comma separated DNS names or IP addresses, at most 10; empty entries are rejected.
+validate_hostnames() {
+    HOST_COUNT=0
+    case $1 in
+        '' | ,* | *, | *,,*) return 1 ;;
+    esac
+    old_ifs=$IFS
+    IFS=,
+    # Word splitting on commas is intended; the values are validated individually below.
+    # shellcheck disable=SC2086
+    set -- $1
+    IFS=$old_ifs
+    for name in "$@"; do
+        if is_ip "$name" || is_dns_name "$name"; then
+            HOST_COUNT=$((HOST_COUNT + 1))
+        else
+            return 1
+        fi
+    done
+    [ "$HOST_COUNT" -le 10 ]
+}
+
+is_safe_path() {
+    case $1 in
+        /*) ;;
+        *) return 1 ;;
+    esac
+    case $1 in
+        *[!A-Za-z0-9._/+@-]*) return 1 ;;
+    esac
+    [ "${#1}" -le 4096 ]
+}
+
+# --- shared helpers --------------------------------------------------------------------------
+
+work=
+cleanup() {
+    if [ -n "$work" ] && [ -d "$work" ]; then
+        rm -rf -- "$work"
+    fi
+}
+trap cleanup EXIT
+
+lock() {
+    exec 9> /run/serval-setup.lock
+    flock -n 9 || fail 'another serval-setup is already running.'
+}
+
+# Copies the Web listener files aside so a failed change can be undone.
+snapshot() {
+    work=$(mktemp -d /run/serval-setup.XXXXXX)
+    for snap in web.json cert.pem key.pem; do
+        case $snap in
+            web.json) src=$WEB_CONFIG ;;
+            cert.pem) src=$CERT_PATH ;;
+            key.pem) src=$KEY_PATH ;;
+        esac
+        if [ -f "$src" ] && [ ! -L "$src" ]; then
+            cp -- "$src" "$work/snap-$snap"
+        fi
+    done
+}
+
+restore_file() {
+    # restore_file NAME DESTINATION MODE OWNER
+    if [ -f "$work/snap-$1" ]; then
+        serval_atomic_write "$2" "$3" "$4" < "$work/snap-$1"
+    else
+        rm -f -- "$2"
+    fi
+}
+
+# Each file is restored on its own, so one failing write (the helpers exit the shell they run in) does not
+# leave the others unrestored; the status says whether everything was put back.
+restore_snapshot() {
+    restore_status=0
+    (restore_file key.pem "$KEY_PATH" 0640 root:serval-web) || restore_status=1
+    (restore_file cert.pem "$CERT_PATH" 0644 root:root) || restore_status=1
+    (restore_file web.json "$WEB_CONFIG" 0640 root:serval-web) || restore_status=1
+    [ "$restore_status" = 0 ] || echo 'serval-setup: some files could not be restored; check /etc/serval/web.json and /etc/serval/tls/.' >&2
+    return "$restore_status"
+}
+
+check_config_paths() {
+    serval_reject_symlinks "$CONFIG_DIR" "$TLS_DIR" "$WEB_CONFIG" "$CERT_PATH" "$KEY_PATH"
+    [ -d "$CONFIG_DIR" ] || fail "$CONFIG_DIR does not exist; is serval installed?"
+    getent group serval-web > /dev/null || fail 'the serval-web group does not exist.'
+}
+
+# --- certificates ----------------------------------------------------------------------------
+
+generate_self_signed() {
+    # generate_self_signed HOSTLIST -> $work/new-cert.pem and $work/new-key.pem (never on persistent storage)
+    first=${1%%,*}
+    subject=serval
+    [ "${#first}" -le 64 ] && subject=$first
+    san=
+    old_ifs=$IFS
+    IFS=,
+    # shellcheck disable=SC2086
+    set -- $1
+    IFS=$old_ifs
+    for name in "$@"; do
+        if is_ip "$name"; then
+            san="${san:+$san,}IP:$name"
+        else
+            san="${san:+$san,}DNS:$name"
+        fi
+    done
+    openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 365 \
+        -keyout "$work/new-key.pem" -out "$work/new-cert.pem" -subj "/CN=$subject" \
+        -addext "subjectAltName=$san" > /dev/null 2>&1 || fail 'could not generate the self-signed certificate.'
+}
+
+# Copies one operator file into $work without following a symbolic link at the last component,
+# capped at 16 KiB (the limit Web enforces when it reads the files). Everything after this works on the copy, so replacing the source between the
+# checks and the copy cannot put another file into /etc/serval/tls.
+copy_operator_file() { # source destination
+    dd if="$1" of="$2" iflag=nofollow bs=16385 count=1 status=none 2> /dev/null ||
+        fail 'certificate and key must be regular files that are not symbolic links.'
+    [ -f "$2" ] || fail 'certificate and key must be regular files.'
+    [ "$(wc -c < "$2")" -le 16384 ] || fail 'certificate or key file is too large (at most 16 KiB).'
+}
+
+validate_operator_certificate() {
+    # validate_operator_certificate CERT KEY -> $work/new-cert.pem, $work/new-key.pem (validated copies)
+    for input in "$1" "$2"; do
+        is_safe_path "$input" || fail 'certificate and key paths must be absolute and use only letters, digits and ._/+@-'
+        if [ -L "$input" ] || [ "$(readlink -f -- "$input")" != "$input" ]; then
+            fail 'certificate and key paths must not be or contain symbolic links.'
+        fi
+        [ -f "$input" ] || fail 'certificate and key must be regular files.'
+    done
+    copy_operator_file "$1" "$work/new-cert.pem"
+    copy_operator_file "$2" "$work/new-key.pem"
+    # A parent directory swapped for a link during the copy would show up as a changed canonical path.
+    for input in "$1" "$2"; do
+        [ "$(readlink -f -- "$input")" = "$input" ] || fail 'certificate and key paths must not be or contain symbolic links.'
+    done
+    # cert.pem is installed world-readable, so it may hold nothing but certificates (a bundle that also
+    # carries the private key would publish it).
+    if grep '^-----BEGIN ' "$work/new-cert.pem" | grep -qv '^-----BEGIN CERTIFICATE-----$'; then
+        fail 'the certificate file must contain only certificates (no private key or other PEM blocks).'
+    fi
+    if grep -q 'ENCRYPTED' "$work/new-key.pem"; then
+        fail 'the private key is encrypted; supply an unencrypted key.'
+    fi
+    openssl x509 -in "$work/new-cert.pem" -noout > /dev/null 2>&1 || fail 'the certificate is not valid PEM.'
+    openssl crl2pkcs7 -nocrl -certfile "$work/new-cert.pem" 2> /dev/null | openssl pkcs7 -print_certs -noout > /dev/null 2>&1 ||
+        fail 'the certificate chain contains an invalid entry.'
+    openssl x509 -in "$work/new-cert.pem" -noout -checkend 0 > /dev/null 2>&1 || fail 'the certificate is expired.'
+    openssl pkey -in "$work/new-key.pem" -noout -passin pass: > /dev/null 2>&1 || fail 'the private key is not valid, unencrypted PEM.'
+    cert_public=$(openssl x509 -in "$work/new-cert.pem" -noout -pubkey 2> /dev/null | openssl pkey -pubin -outform DER 2> /dev/null | openssl dgst -sha256 2> /dev/null) || true
+    key_public=$(openssl pkey -in "$work/new-key.pem" -passin pass: -pubout -outform DER 2> /dev/null | openssl dgst -sha256 2> /dev/null) || true
+    if [ -z "$cert_public" ] || [ "$cert_public" != "$key_public" ]; then
+        fail 'the certificate and private key do not match.'
+    fi
+}
+
+fingerprint_of() {
+    openssl x509 -in "$1" -noout -fingerprint -sha256 2> /dev/null | sed 's/^[^=]*=//'
+}
+
+# --- subcommands -----------------------------------------------------------------------------
+
+cmd_admin_group() {
+    [ $# -eq 1 ] || bad_usage 'admin-group takes exactly one group name.'
+    case $1 in
+        '' | [!a-z]* | *[!a-zA-Z0-9_-]*) bad_usage 'the group name must start with a lowercase letter and use only letters, digits, - and _.' ;;
+    esac
+    [ "${#1}" -le 64 ] || bad_usage 'the group name is too long.'
+    lock
+    check_config_paths
+    serval_reject_symlinks "$CONFIG_DIR/agent.json"
+    serval_apply_admin_group "$1"
+    # Keep debconf's answer in step with agent.json so "dpkg-reconfigure serval" starts from the
+    # configured group and a preseeded answer is never overwritten.
+    if command -v debconf-communicate > /dev/null 2>&1; then
+        printf 'SET serval/admin-group %s\nFSET serval/admin-group seen true\n' "$SERVAL_ADMIN_GROUP" |
+            debconf-communicate serval > /dev/null 2>&1 || true
+    fi
+    printf 'Host-admin group is now %s (gid %s). Agent and Web were restarted.\n' "$SERVAL_ADMIN_GROUP" "$SERVAL_ADMIN_GID"
+}
+
+# Writes the files of a listener change. Runs in a subshell: a failing helper exits it, and the caller
+# restores the snapshot.
+write_listener_files() {
+    if [ -n "$tls" ]; then
+        serval_atomic_write "$KEY_PATH" 0640 root:serval-web < "$work/new-key.pem"
+        serval_atomic_write "$CERT_PATH" 0644 root:root < "$work/new-cert.pem"
+        printf '{"address":"%s","port":%s,"tls":{"certificate":"%s","key":"%s"}}\n' \
+            "$address" "$port" "$CERT_PATH" "$KEY_PATH" | serval_atomic_write "$WEB_CONFIG" 0640 root:serval-web
+    else
+        printf '{"address":"%s","port":%s,"tls":null}\n' "$address" "$port" |
+            serval_atomic_write "$WEB_CONFIG" 0640 root:serval-web
+        rm -f -- "$KEY_PATH" "$CERT_PATH"
+    fi
+}
+
+cmd_listen() {
+    address='' port='' tls='' hostnames='' certificate='' key='' loopback=0
+    seen=:
+    while [ $# -gt 0 ]; do
+        option=$1
+        case $option in
+            --loopback)
+                case $seen in *:loopback:*) bad_usage 'duplicated option --loopback.' ;; esac
+                seen="${seen}loopback:"
+                loopback=1
+                shift
+                continue
+                ;;
+            --address | --port | --tls | --hostname | --certificate | --key) ;;
+            *) bad_usage "unknown option: $(printf '%.40s' "$option" | tr -c '[:print:]' '?')" ;;
+        esac
+        [ $# -ge 2 ] || bad_usage "option $option needs a value."
+        name=${option#--}
+        case $seen in *":$name:"*) bad_usage "duplicated option $option." ;; esac
+        seen="${seen}$name:"
+        value=$2
+        if has_control "$value"; then
+            bad_usage "invalid value for $option."
+        fi
+        case $option in
+            --address) address=$value ;;
+            --port) port=$value ;;
+            --tls) tls=$value ;;
+            --hostname) hostnames=$value ;;
+            --certificate) certificate=$value ;;
+            --key) key=$value ;;
+        esac
+        shift 2
+    done
+
+    if [ "$loopback" = 1 ]; then
+        [ -z "$address$tls$hostnames$certificate$key" ] || bad_usage '--loopback cannot be combined with other options except --port.'
+        address=127.0.0.1
+    fi
+    [ -n "$address" ] || bad_usage 'listen needs --address or --loopback.'
+    is_ip "$address" || bad_usage 'the address must be a literal IPv4 or IPv6 address.'
+    case $tls in
+        '' | self-signed | custom) ;;
+        *) bad_usage '--tls must be self-signed or custom.' ;;
+    esac
+    if [ -z "$port" ]; then
+        if [ -n "$tls" ]; then port=9443; else port=9080; fi
+    fi
+    is_port "$port" || bad_usage 'the port must be a number from 1024 to 65535.'
+
+    case $tls in
+        self-signed)
+            [ -n "$hostnames" ] || bad_usage '--tls self-signed needs --hostname.'
+            [ -z "$certificate$key" ] || bad_usage '--certificate and --key are only valid with --tls custom.'
+            validate_hostnames "$hostnames" || bad_usage 'hostnames must be DNS names or IP addresses, comma separated (at most 10).'
+            ;;
+        custom)
+            if [ -z "$certificate" ] || [ -z "$key" ]; then
+                bad_usage '--tls custom needs --certificate and --key.'
+            fi
+            [ -z "$hostnames" ] || bad_usage '--hostname is only valid with --tls self-signed.'
+            ;;
+        '')
+            [ -z "$hostnames$certificate$key" ] || bad_usage 'TLS options need --tls.'
+            is_loopback "$address" || fail 'a non-loopback address requires TLS (--tls self-signed or --tls custom).'
+            ;;
+    esac
+
+    lock
+    check_config_paths
+    snapshot
+    previous_port=$(serval_web_port)
+    if [ -n "$tls" ]; then
+        if [ "$tls" = self-signed ]; then
+            generate_self_signed "$hostnames"
+        else
+            validate_operator_certificate "$certificate" "$key"
+        fi
+        install -d -o root -g serval-web -m 0750 "$TLS_DIR"
+    fi
+
+    # Every input is validated; from here on a failure restores the snapshot, including a failed write.
+    if ! (write_listener_files); then
+        restore_snapshot || true
+        fail 'writing the listener files failed and the previous configuration was restored.'
+    fi
+
+    if serval_have_systemd; then
+        if serval_restart_web && serval_wait_for_web "$port"; then
+            :
+        else
+            echo 'serval-setup: serval-web.service did not become active; restoring the previous configuration.' >&2
+            restore_snapshot || true
+            serval_restart_web || true
+            serval_wait_for_web "$previous_port" > /dev/null 2>&1 || true
+            fail 'the listener change failed and was rolled back. See: journalctl -u serval-web.service'
+        fi
+    fi
+
+    scheme=http
+    [ -n "$tls" ] && scheme=https
+    printf 'Web now listens on %s://%s:%s\n' "$scheme" "$(url_host "$address")" "$port"
+    if [ -n "$tls" ]; then
+        printf 'Certificate SHA-256 fingerprint (verify it out of band before trusting the connection):\n  SHA256:%s\n' "$(fingerprint_of "$CERT_PATH")"
+    fi
+}
+
+cmd_status() {
+    [ $# -eq 0 ] || bad_usage 'status takes no arguments.'
+    check_config_paths
+    if [ -f "$WEB_CONFIG" ]; then
+        address=$(jq -r '.address' "$WEB_CONFIG" 2> /dev/null) || fail "$WEB_CONFIG is not valid JSON."
+        port=$(jq -r '.port' "$WEB_CONFIG")
+        has_tls=$(jq -r 'if .tls == null then "no" else "yes" end' "$WEB_CONFIG")
+    else
+        address=127.0.0.1 port=9080 has_tls=no
+    fi
+    if [ "$has_tls" = yes ]; then
+        printf 'Listener:      https://%s:%s\n' "$(url_host "$address")" "$port"
+        if [ -f "$CERT_PATH" ]; then
+            issuer=$(openssl x509 -in "$CERT_PATH" -noout -issuer 2> /dev/null | sed 's/^[^=]*= *//')
+            subject=$(openssl x509 -in "$CERT_PATH" -noout -subject 2> /dev/null | sed 's/^[^=]*= *//')
+            mode=operator-supplied
+            [ "$issuer" = "$subject" ] && mode=self-signed
+            printf 'TLS:           %s\n' "$mode"
+            printf 'Subject:       %s\n' "$subject"
+            names=$(openssl x509 -in "$CERT_PATH" -noout -ext subjectAltName 2> /dev/null | sed '1d;s/^ *//' | tr -d '\n')
+            printf 'Names:         %s\n' "${names:-none}"
+            printf 'Expires:       %s\n' "$(openssl x509 -in "$CERT_PATH" -noout -enddate 2> /dev/null | sed 's/^notAfter=//')"
+            printf 'Fingerprint:   SHA256:%s\n' "$(fingerprint_of "$CERT_PATH")"
+        else
+            printf 'TLS:           configured, but %s is missing\n' "$CERT_PATH"
+        fi
+    else
+        printf 'Listener:      http://%s:%s\n' "$(url_host "$address")" "$port"
+        printf 'TLS:           none\n'
+    fi
+    if [ -f "$CONFIG_DIR/agent.json" ] && [ ! -L "$CONFIG_DIR/agent.json" ]; then
+        printf 'Admin group:   %s (gid %s)\n' "$(jq -r '.adminGroup' "$CONFIG_DIR/agent.json")" "$(jq -r '.adminGid' "$CONFIG_DIR/agent.json")"
+    else
+        printf 'Admin group:   unknown (agent.json missing)\n'
+    fi
+    if serval_have_systemd; then
+        printf 'serval-agent:  %s\n' "$(systemctl is-active serval-agent.service 2> /dev/null || true)"
+        printf 'serval-web:    %s\n' "$(systemctl is-active serval-web.service 2> /dev/null || true)"
+    fi
+}
+
+[ $# -ge 1 ] || bad_usage 'a subcommand is required.'
+subcommand=$1
+shift
+case $subcommand in
+    status) cmd_status "$@" ;;
+    admin-group) cmd_admin_group "$@" ;;
+    listen) cmd_listen "$@" ;;
+    *) bad_usage "unknown subcommand: $(printf '%.40s' "$subcommand" | tr -c '[:print:]' '?')" ;;
+esac
