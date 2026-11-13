@@ -78,7 +78,7 @@ jobs:
             for deb in /packages/*.deb; do lintian --no-cfg --fail-on error,warning "$deb"; done'
 
       - name: Upload the package
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: release-packages-${{ matrix.arch }}
           path: artifacts/packages/*.deb
@@ -117,7 +117,7 @@ jobs:
           find "$RUNNER_TEMP/site" -type f | head -50
 
       - name: Upload the dry-run site
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: dry-run-site
           path: ${{ runner.temp }}/site
