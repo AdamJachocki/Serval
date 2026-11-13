@@ -110,6 +110,38 @@ architecture and the downloaded keyring against that hash before writing
 package. The whole script is one function called on the last line, so a
 truncated download runs nothing. The unstamped template refuses to run.
 
+### Manual repository setup
+
+`install.sh` is a convenience; the same result by hand, as root:
+
+```bash
+curl -fsSLo /tmp/serval-archive-keyring.gpg https://<owner>.github.io/<repository>/serval-archive-keyring.gpg
+sha256sum /tmp/serval-archive-keyring.gpg   # compare with the hash pinned in install.sh
+install -m 0644 /tmp/serval-archive-keyring.gpg /usr/share/keyrings/serval-archive-keyring.gpg
+cat > /etc/apt/sources.list.d/serval.sources <<'EOF'
+Types: deb
+URIs: https://<owner>.github.io/<repository>/apt
+Suites: stable
+Components: main
+Signed-By: /usr/share/keyrings/serval-archive-keyring.gpg
+EOF
+apt-get update && apt-get install serval
+```
+
+The hash to compare with is the keyring SHA-256 stamped into the published
+`install.sh` (download it and read it, do not run it). Do not skip the
+comparison: it is what ties the key to this project rather than to whoever
+serves the file.
+
+## Release deployment rules
+
+Both environments need deployment rules, otherwise the first tag fails
+half-way: `release` (signing secrets, required reviewers) and `github-pages`
+(created by Pages) must both allow the tags `v*` as deployment refs. `github-pages`
+defaults to the default branch only, so without the `v*` rule `deploy-pages`
+rejects the tag after the GitHub Release already exists. If that happens, add the
+rule and re-run the failed job; the packages and release are unaffected.
+
 ## Releasing
 
 A release is a tag `vX.Y.Z` on a commit that is on `main`.
@@ -137,11 +169,14 @@ The repository is signed with a dedicated RSA 4096 key that signs nothing else. 
   revocation certificate offline.
 - **Store** it as the environment secret `APT_GPG_PRIVATE_KEY` (ASCII-armored;
   `gpg --armor --export-secret-keys <fingerprint>`). A key with a passphrase
-  needs the passphrase in a second secret, `APT_GPG_PASSPHRASE`, of the same
-  environment of the protected GitHub environment `release`, with
-  required reviewers. Only the `publish` job of the release workflow uses the
-  environment, so no other job or workflow can read it. The key exists on the
-  runner only for that job and is deleted at its end.
+  needs the passphrase in a second secret, `APT_GPG_PASSPHRASE`, in the same
+  environment. The environment is protected: configure required reviewers and
+  restrict deployments to the tags `v*` (a branch policy would let any branch
+  workflow request the secrets after approval). Only the `publish` job of the
+  release workflow references the environment, and only its signing step gets
+  the secrets. The key exists on the runner only for that job and is deleted at
+  its end. The secrets are protected by those environment rules, not by the
+  workflow file alone, so keep the rules in place.
 - **Publish** nothing but the public key. Commit it as
   `packaging/release-keyring/serval-archive-keyring.gpg` (dearmored; the file
   may hold several keys). The release workflow refuses to build without it,
@@ -181,6 +216,7 @@ through a new Serval release.
   `Serval-Dotnet-Runtime`, advisory published when the fix is security
   relevant.
 - Before the first public release: create the production release key, commit
-  its public key to `packaging/release-keyring/`, configure the `release` environment, enable GitHub Pages, and decide on a
+  its public key to `packaging/release-keyring/`, configure the `release` environment (secrets, reviewers, `v*` tag rule), enable
+  GitHub Pages (source: GitHub Actions) with the `v*` tag rule on `github-pages`, and decide on a
   custom domain (cheapest before the first release, because existing clients
   would need a one-time source update later).

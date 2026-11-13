@@ -23,7 +23,8 @@ the repository and installs the package (see
 [packaging-and-release.md](packaging-and-release.md)); later updates arrive
 with `apt-get upgrade`. `install.sh` runs without prompts, so the host-admin
 group is `sudo` unless you preseed it first (below) or change it afterwards
-with `serval-setup admin-group`.
+with `serval-setup admin-group`. To set up the repository by hand instead, see
+"Manual repository setup" in [packaging-and-release.md](packaging-and-release.md).
 
 Installation asks one debconf question, the host-admin group (default `sudo`).
 For unattended installs preseed it before installing:

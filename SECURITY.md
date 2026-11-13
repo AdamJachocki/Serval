@@ -45,16 +45,6 @@ The Agent authorizes before acquisition, rechecks current identity, grants and
 protection after acquisition, and records value-free audit metadata before release.
 Ordinary service inspection never acquires environment values.
 
-### Web listener
-
-In `Production`, `Serval.Web` reads its listener only from `/etc/serval/web.json`
-(root-owned, group `serval-web`, not writable by group or others, not a symbolic
-link) and ignores environment variables, command-line URLs and application
-settings. It listens on `127.0.0.1:9080` over HTTP by default. Plain HTTP on a
-non-loopback address is refused at startup; a network listener needs a
-certificate and key from `/etc/serval/tls/` and then sends HSTS. Startup
-errors never include key material.
-
 Each reveal makes a fresh supported-declarations read. Only the requested value
 crosses IPC in a disposable payload with redacted ordinary serialization and
 diagnostics. Owned buffers are cleared on disposal and transport exits. Web writes
@@ -85,3 +75,13 @@ legitimate requests by the same process. Native PAM/NSS calls have bounded
 caller waits and worker concurrency; a stuck native call can retain a worker
 until it returns, so repeated hangs can make authentication unavailable until
 the calls finish or the Agent restarts.
+
+### Web listener
+
+In `Production`, `Serval.Web` reads its listener only from `/etc/serval/web.json`
+(root-owned, group `serval-web`, not writable by group or others, not a symbolic
+link) and ignores environment variables, command-line URLs and application
+settings. It listens on `127.0.0.1:9080` over HTTP by default. Plain HTTP on a
+non-loopback address is refused at startup; a network listener needs a
+certificate and key from `/etc/serval/tls/` and then sends HSTS. Startup
+errors never include key material.
