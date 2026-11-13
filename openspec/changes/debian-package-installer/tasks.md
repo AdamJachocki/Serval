@@ -34,7 +34,7 @@
 - [x] 5.2 Add a package test script covering install scenarios of `deployment/debian-package`: no .NET present, identity and modes, binary trees not writable by Web, enabled and active services, socket present, Web reachable on loopback only, unsafe pre-existing account, symlinked protected paths, invalid and preseeded groups, and unsupported architecture refusal. Verify it passes in every fixture.
 - [x] 5.3 Extend the script with upgrade scenarios: lower-version install with grants, favorites and audit rows, upgrade with backup created and data preserved, forced backup failure leaving old binaries and database, Agent startup failure after upgrade leaving Web stopped and the backup present, and configuration changed through `serval-setup` surviving the upgrade. Verify it passes in every fixture.
 - [x] 5.4 Extend the script with remove, purge and reinstall scenarios as specified. Verify it passes in every fixture.
-- [ ] 5.5 Add the package build, `lintian`, `shellcheck` and the package test matrix (four releases, `amd64` and `arm64`) to `.github/workflows/ci.yml`. Verify the jobs pass on a pull request.
+- [x] 5.5 Add the package build, `lintian`, `shellcheck` and the package test matrix (four releases, `amd64` and `arm64`) to `.github/workflows/ci.yml`. Verify the jobs pass on a pull request.
 
 ## 6. Distribution: APT repository, bootstrap and release
 

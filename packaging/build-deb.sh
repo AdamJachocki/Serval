@@ -54,7 +54,7 @@ for project in Agent Web; do
     dotnet publish "$repo/src/Serval.$project/Serval.$project.csproj" \
         --configuration Release --runtime "$runtime" --self-contained true \
         -p:DebugType=None -p:DebugSymbols=false \
-        --output "$stage/opt/serval/$lower" --nologo --verbosity quiet
+        --output "$stage/opt/serval/$lower" --nologo --verbosity "${SERVAL_DOTNET_VERBOSITY:-quiet}"
 done
 
 runtime_version=$(jq -r '.libraries | keys[] | select(startswith("runtimepack.Microsoft.NETCore.App.Runtime"))' \
