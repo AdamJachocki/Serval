@@ -60,7 +60,7 @@ jobs:
       # their keyring through normal upgrades. Dry runs build without it.
       - name: Build the package
         env:
-          VERSION: ${{ github.event_name == 'push' && github.ref_name || format('v{0}', inputs.version) }}
+          SERVAL_RELEASE_VERSION: ${{ github.event_name == 'push' && github.ref_name || format('v{0}', inputs.version) }}
         run: |
           export keyring=''
           if [[ $GITHUB_EVENT_NAME == push ]]; then
@@ -68,9 +68,8 @@ jobs:
               { echo '::error::packaging/release-keyring/serval-archive-keyring.gpg is missing; commit the release public key first.'; exit 1; }
             keyring=/src/packaging/release-keyring/serval-archive-keyring.gpg
           fi
-          export SERVAL_DOTNET_VERBOSITY=normal
-          docker run --rm --volume "$PWD:/src" --workdir /src --env VERSION --env keyring --env SERVAL_DOTNET_VERBOSITY serval-pkg-tools \
-            bash -c 'bash packaging/build-deb.sh --version "$VERSION" --arch ${{ matrix.arch }} --output /src/artifacts/packages ${keyring:+--keyring "$keyring"}'
+          docker run --rm --volume "$PWD:/src" --workdir /src --env SERVAL_RELEASE_VERSION --env keyring serval-pkg-tools \
+            bash -c 'bash packaging/build-deb.sh --version "$SERVAL_RELEASE_VERSION" --arch ${{ matrix.arch }} --output /src/artifacts/packages ${keyring:+--keyring "$keyring"}'
 
       - name: Lint the package
         run: |

@@ -48,6 +48,10 @@ build=$(mktemp -d)
 trap 'rm -rf -- "$build"' EXIT
 stage=$build/serval_${version}_$arch
 
+# MSBuild turns environment variables into properties without regard to case, so an exported VERSION
+# (such as a release tag like v1.2.3) would become the invalid package version of every project.
+unset VERSION Version
+
 echo "Publishing Agent and Web for $runtime ..."
 for project in Agent Web; do
     lower=${project,,}
