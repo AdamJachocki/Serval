@@ -112,12 +112,29 @@ truncated download runs nothing. The unstamped template refuses to run.
 
 ### Manual repository setup
 
-`install.sh` is a convenience; the same result by hand, as root:
+`install.sh` is a convenience; the same result by hand, as root, with `curl` and
+`ca-certificates` installed. Replace `<owner>`, `<repository>` and
+`<sha256-from-install.sh>` first (the hash is the keyring SHA-256 stamped into the
+published `install.sh`: download that script and read it, do not run it).
 
 ```bash
-curl -fsSLo /tmp/serval-archive-keyring.gpg https://<owner>.github.io/<repository>/serval-archive-keyring.gpg
-sha256sum /tmp/serval-archive-keyring.gpg   # compare with the hash pinned in install.sh
-install -m 0644 /tmp/serval-archive-keyring.gpg /usr/share/keyrings/serval-archive-keyring.gpg
+work=$(mktemp -d) &&
+curl -fsSLo "$work/keyring.gpg" 'https://<owner>.github.io/<repository>/serval-archive-keyring.gpg' &&
+  echo '<sha256-from-install.sh>  '"$work/keyring.gpg" | sha256sum -c - &&
+  install -m 0644 "$work/keyring.gpg" /usr/share/keyrings/serval-archive-keyring.gpg
+rm -rf -- "$work"
+```
+
+Continue only if `sha256sum` printed `OK` and the `install` ran. The `&&` chain
+keeps a key that fails the check from being installed; on any error stop here and
+do not run the next block. (`mktemp -d` gives a private directory, so no other
+user can race a predictable path.) The check detects a corrupted file or one
+replaced in transit. The hash comes from the same site as the key, so for an
+independent source use the SHA-256 of
+`packaging/release-keyring/serval-archive-keyring.gpg` at the release tag in the
+source repository.
+
+```bash
 cat > /etc/apt/sources.list.d/serval.sources <<'EOF'
 Types: deb
 URIs: https://<owner>.github.io/<repository>/apt
@@ -125,13 +142,9 @@ Suites: stable
 Components: main
 Signed-By: /usr/share/keyrings/serval-archive-keyring.gpg
 EOF
+chmod 0644 /etc/apt/sources.list.d/serval.sources
 apt-get update && apt-get install serval
 ```
-
-The hash to compare with is the keyring SHA-256 stamped into the published
-`install.sh` (download it and read it, do not run it). Do not skip the
-comparison: it is what ties the key to this project rather than to whoever
-serves the file.
 
 ## Release deployment rules
 
