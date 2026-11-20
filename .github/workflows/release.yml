@@ -226,7 +226,7 @@ jobs:
           gh release edit "$TAG" --draft=false
 
       - name: Upload the site for GitHub Pages
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v5
         with:
           path: ${{ runner.temp }}/site
 
