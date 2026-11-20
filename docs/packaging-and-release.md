@@ -166,6 +166,12 @@ A release is a tag `vX.Y.Z` on a commit that is on `main`.
    `.deb` files and `SHA256SUMS`, and publishes the site to GitHub Pages.
 4. Check the Pages site and run the published one-liner on a test host.
 
+Push the tag only (`git tag vX.Y.Z && git push origin vX.Y.Z`); do not create the
+release by hand in the GitHub UI. The workflow creates the release as a draft,
+attaches the packages and publishes it last. A release published by hand has no
+packages, and with immutable releases enabled the workflow can no longer add
+them: the tag is then burned and the next patch version has to be released.
+
 The workflow can be run manually (**Actions → Release → Run workflow**) as a
 dry run: it builds the packages, assembles a site with a throwaway key and
 publishes nothing. Do this after changing packaging or the workflow.

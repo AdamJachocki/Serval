@@ -211,11 +211,19 @@ jobs:
         run: |
           cd new-packages
           sha256sum serval_*.deb > SHA256SUMS
-          if gh release view "$TAG" > /dev/null 2>&1; then
+          # The release is created as a draft, gets its assets, and is published last: GitHub does not
+          # allow assets to be added once a release is published, and a published release is immutable
+          # when the repository enables that. A draft left by an earlier failed run is reused.
+          if state=$(gh release view "$TAG" --json isDraft --jq .isDraft 2> /dev/null); then
+            if [[ $state != true ]]; then
+              echo "::error::Release $TAG is already published and cannot receive assets. Delete it (or use a new tag) and run again."
+              exit 1
+            fi
             gh release upload "$TAG" --clobber serval_*.deb SHA256SUMS
           else
-            gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes serval_*.deb SHA256SUMS
+            gh release create "$TAG" --draft --verify-tag --title "$TAG" --generate-notes serval_*.deb SHA256SUMS
           fi
+          gh release edit "$TAG" --draft=false
 
       - name: Upload the site for GitHub Pages
         uses: actions/upload-pages-artifact@v4
